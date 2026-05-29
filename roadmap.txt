@@ -1,0 +1,336 @@
+================================================================================
+  CYPHER 2.0 — INTEGRATION ROADMAP
+  Bridging the C++ DPI Engine (Cypher 1.0) with the ML Threat Detection Model
+  via server.py (FastAPI bridge)
+================================================================================
+
+AUTHOR: Generated collaboratively
+STATUS: [ ] = pending  [/] = in progress  [x] = done
+
+--------------------------------------------------------------------------------
+SYSTEM OVERVIEW
+--------------------------------------------------------------------------------
+
+  [C++ DPI Engine]  --NDJSON-stdout-->  [server.py (FastAPI)]
+                                              |
+                          +-------------------+-------------------+
+                          |                                       |
+                    [ML Layer]                          [Dashboard (future)]
+                  (classifier +
+                  anomaly detector)
+                          |
+                    enriched packet JSON
+                   (with threat label & confidence)
+
+ENGINE OUTPUT SCHEMA (packets.jsonl — what the engine already emits):
+  {
+    "ts":      1700000003.38,       -- UNIX timestamp (float)
+    "src":     "192.168.1.100",     -- source IP
+    "dst":     "142.250.185.206",   -- destination IP
+    "sport":   54552,               -- source port
+    "dport":   443,                 -- destination port
+    "proto":   "TCP",               -- protocol string
+    "app":     "Google",            -- DPI-classified application
+    "sni":     "www.google.com",    -- TLS SNI (empty string if N/A)
+    "blocked": false                -- whether engine blocked the packet
+  }
+
+ML MODEL INPUT SCHEMA (11-feature window over 25 packets):
+  {
+    "packet_count":          25,
+    "avg_packet_size":       371.74,
+    "tcp_count":             17,
+    "udp_count":             4,
+    "unique_ips":            12,
+    "syn_count":             0,
+    "tcp_ratio":             0.68,
+    "syn_ratio":             0.0,
+    "packet_size_std":       120.5,
+    "avg_interarrival_time": 0.0012,
+    "unique_ports":          3
+  }
+
+ML MODEL OUTPUT:
+  - threat_classifier.pkl   → Random Forest → label: 0 (Normal) or 1 (Attack)
+                              + predict_proba for confidence score (threshold 0.80)
+  - anomaly_detector.pkl    → Isolation Forest → anomaly score
+                              (< threshold = anomalous)
+
+--------------------------------------------------------------------------------
+PHASE 1 — FOUNDATION: FIX & VALIDATE THE EXISTING PIPELINE
+--------------------------------------------------------------------------------
+
+[x] 1.1  Verify engine binary emits clean NDJSON on stdout
+         - Run: ..\engine\dpi_simple.exe ..\engine\test_dpi.pcap ..\engine\output.pcap --json
+         - Confirm: every stdout line is a valid JSON object matching engine schema above
+         - Confirm: all banners/stats go to stderr (done in previous conversation)
+         - If not clean, re-check main_dpi.cpp JSON output mode
+
+[x] 1.2  Verify existing server.py /stream endpoint end-to-end
+         ✅ Fixed ENGINE_CMD to use absolute paths via Path(__file__).parent
+         - Start uvicorn: uvicorn server:app --reload
+         - curl or browser: GET http://127.0.0.1:8000/stream
+         - Confirm SSE stream returns data: {...}\n\n events
+         - Fix: ENGINE_CMD path is relative — may fail depending on CWD
+           → Change to absolute path or make it relative to __file__
+
+[x] 1.3  Added /health endpoint → reports engine path, engine_ready, ml_loaded, uptime_s
+         - GET /health → {"status": "ok", "engine": "reachable"}
+         - Useful for dashboard liveness checks later
+
+--------------------------------------------------------------------------------
+PHASE 2 — ML INTEGRATION: SLIDING WINDOW FEATURE EXTRACTOR IN server.py
+--------------------------------------------------------------------------------
+
+The core challenge: the ML model works on WINDOWS of 25 packets, not individual
+packets. server.py must:
+  (a) Buffer incoming packets from the engine stream
+  (b) Compute the 11 features once a window of 25 is filled
+  (c) Run both ML models on the feature vector
+  (d) Attach the result back to each packet in the window (or emit a window event)
+
+[ ] 2.1  Create server/ml_bridge.py — the window feature computer
+         - Class: PacketWindowBuffer(window_size=25)
+         - Method: add_packet(packet_dict) → returns feature_dict or None
+         - Features to compute from engine NDJSON fields:
+             packet_count          → len(window)
+             avg_packet_size       → mean of packet sizes
+                                     *** PROBLEM: engine does NOT emit packet_size ***
+                                     → Need to add "size" field to engine JSON output
+                                     → OR estimate: dport 443 ≈ 800 bytes avg, dport 53 ≈ 60 bytes
+                                     → Recommended: add size to engine JSON (see Phase 3)
+             tcp_count             → count where proto == "TCP"
+             udp_count             → count where proto == "UDP"
+             unique_ips            → len(set of src + dst IPs)
+             syn_count             → *** PROBLEM: engine doesn't emit TCP flags in JSON ***
+                                     → Add "flags" field to engine JSON OR default syn_count=0
+             tcp_ratio             → tcp_count / packet_count
+             syn_ratio             → syn_count / packet_count
+             packet_size_std       → std of packet sizes (needs size field)
+             avg_interarrival_time → mean diff of "ts" timestamps within window
+             unique_ports          → len(set of dport values in window)
+
+[ ] 2.2  Create server/ml_predictor.py — loads and runs the models
+         - Load ml/threat_classifier.pkl  (Random Forest)
+         - Load ml/anomaly_detector.pkl   (Isolation Forest)
+         - Method: predict(feature_dict) → {
+             "label":          "Normal" | "Attack",
+             "confidence":     0.0 - 1.0,
+             "anomaly_score":  float,
+             "is_anomaly":     bool
+           }
+         - Use FINAL_FEATURES order from upgrade_and_retrain.py:
+           ["packet_count","avg_packet_size","tcp_count","udp_count",
+            "unique_ips","syn_count","tcp_ratio","syn_ratio",
+            "packet_size_std","avg_interarrival_time","unique_ports"]
+         - Confidence threshold: 0.80 (from ML model README)
+
+[ ] 2.3  Integrate ml_bridge + ml_predictor into server.py /stream endpoint
+         - For each packet received from engine stdout:
+             1. Parse JSON
+             2. Feed into PacketWindowBuffer
+             3. If window full (25 packets):
+                 a. Compute features
+                 b. Run ML prediction
+                 c. Tag all 25 packets with {"threat": {...}} or emit a separate window event
+             4. Stream enriched packet JSON as SSE
+
+[ ] 2.4  Add a new SSE endpoint: /stream/enriched
+         - Emits individual packets with ML annotation appended:
+           {
+             "ts": ..., "src": ..., "dst": ..., ...,
+             "ml": {
+               "label":         "Normal",
+               "confidence":    0.92,
+               "anomaly_score": -0.15,
+               "is_anomaly":    false,
+               "window_id":     42
+             }
+           }
+         - Keep /stream as raw (unenriched) for backward compat
+
+[ ] 2.5  Add a new endpoint: /stream/windows
+         - Emits only window-level events (one per 25 packets):
+           {
+             "window_id":   42,
+             "packet_count": 25,
+             "features":    {...11 features...},
+             "prediction":  {"label": "Attack", "confidence": 0.87, ...},
+             "packets":     [{...}, {...}, ...]   -- the 25 raw packets
+           }
+         - Dashboard can subscribe to this for real-time threat charts
+
+--------------------------------------------------------------------------------
+PHASE 3 — ENGINE ENHANCEMENT: ADD MISSING JSON FIELDS
+--------------------------------------------------------------------------------
+
+The ML model needs packet_size, tcp_flags (for syn_count), and ideally payload_len.
+These are available inside the engine but not currently emitted in JSON mode.
+
+[ ] 3.1  Add "size" field to engine JSON output
+         - In main_dpi.cpp or wherever JSON is printed:
+           Add: "size": <raw.data.size()>   (total bytes including headers)
+         - This enables avg_packet_size and packet_size_std computation
+
+[ ] 3.2  Add "flags" field to engine JSON output (TCP flags byte)
+         - Add: "flags": <tcp_flags_integer>
+         - In server, detect SYN: (flags & 0x02) != 0
+
+[ ] 3.3  Add "payload_len" field to engine JSON output
+         - Add: "payload_len": <job.payload_length>
+         - Useful for future features (data volume analysis)
+
+[ ] 3.4  Rebuild engine after changes
+         - cmake --build . or recompile with CMakeLists.txt
+         - Test: run engine on test_dpi.pcap and verify new fields appear in stdout
+
+--------------------------------------------------------------------------------
+PHASE 4 — LIVE PACKET CAPTURE MODE (OPTIONAL BUT POWERFUL)
+--------------------------------------------------------------------------------
+
+Currently the engine reads from a .pcap file. For real production use,
+you want it to sniff live off a network interface.
+
+[ ] 4.1  Check if engine has a live capture mode
+         - Look at main_dpi.cpp / main_working.cpp for --live or --interface flags
+         - If not: add a live mode using pcap_loop() / pcap_open_live()
+
+[ ] 4.2  Add /capture endpoint to server.py
+         - POST /capture/start  {"interface": "eth0"}  → starts engine in live mode
+         - POST /capture/stop   → kills the engine subprocess
+         - GET  /capture/status → {"running": true, "packets_captured": 1234}
+
+[ ] 4.3  Add pcap file upload endpoint
+         - POST /analyze  (multipart upload of .pcap file)
+         - Runs engine on uploaded file → returns enriched NDJSON or summary JSON
+         - Useful for forensic/offline analysis (like ML repo's PCAP Analysis tab)
+
+--------------------------------------------------------------------------------
+PHASE 5 — DASHBOARD: WEB UI FOR CYPHER 2.0
+--------------------------------------------------------------------------------
+
+The ML repo had a Streamlit dashboard. We replace it with a web dashboard
+that connects to our FastAPI server via SSE and REST.
+
+[ ] 5.1  Create dashboard/index.html (or React/Next.js app)
+         - Real-time packet stream table (subscribes to /stream/enriched)
+         - Threat timeline chart (subscribes to /stream/windows)
+         - Threat counters: Normal vs Attack vs Anomaly
+         - App distribution pie chart (from engine "app" field)
+         - Blocked packets counter
+
+[ ] 5.2  Add a /stats REST endpoint to server.py
+         - GET /stats → {
+             "total_packets": 1234,
+             "total_windows":  49,
+             "attacks_detected": 3,
+             "anomalies_detected": 7,
+             "top_apps": {"Google": 120, "YouTube": 80, ...},
+             "blocked_packets": 2
+           }
+
+[ ] 5.3  Add a /threats endpoint
+         - GET /threats → list of detected threats with timestamp, window_id, confidence
+         - Useful for an "Alert History" panel in dashboard
+
+[ ] 5.4  Serve the dashboard from FastAPI
+         - Mount dashboard/static as StaticFiles
+         - GET / → redirect or serve index.html
+         - This explains the current 404 on GET /
+
+--------------------------------------------------------------------------------
+PHASE 6 — PRODUCTIONIZATION
+--------------------------------------------------------------------------------
+
+[ ] 6.1  Environment config (.env file)
+         - ENGINE_PATH, ENGINE_PCAP, ML_MODEL_DIR, WINDOW_SIZE, CONFIDENCE_THRESHOLD
+         - Load via python-dotenv in server.py
+
+[ ] 6.2  Error handling & resilience
+         - If engine process crashes → auto-restart with backoff
+         - If ML model load fails → return raw packets without ML enrichment
+         - If window buffer gets stale data → flush + reset
+
+[ ] 6.3  Logging
+         - Structured JSON logs (all to stderr or a log file)
+         - Log: engine start/stop, ML predictions, errors
+
+[ ] 6.4  Update requirements.txt
+         - Add: joblib, scikit-learn (already there), numpy, pandas
+         - Add: python-dotenv (for config)
+         - Confirm: fastapi, uvicorn already present
+
+[ ] 6.5  Docker setup (optional)
+         - Dockerfile that runs engine + server.py together
+         - Or docker-compose with engine as a sidecar
+
+--------------------------------------------------------------------------------
+KNOWN ISSUES & DECISIONS TO MAKE
+--------------------------------------------------------------------------------
+
+ISSUE A: Packet size missing from engine JSON
+  → The 11-feature ML model needs avg_packet_size and packet_size_std
+  → Without "size" in JSON, we cannot compute these accurately
+  → Options:
+      (1) Add "size" field to engine C++ JSON output  ← RECOMMENDED
+      (2) Estimate size from port/protocol heuristics ← quick hack
+      (3) Retrain ML model dropping those 2 features  ← loses accuracy
+
+ISSUE B: SYN count missing from engine JSON
+  → syn_count is important for detecting SYN flood attacks
+  → Options:
+      (1) Add "flags" field to engine C++ JSON output ← RECOMMENDED
+      (2) Default syn_count=0 (misses SYN floods)
+
+ISSUE C: ENGINE_CMD uses relative paths
+  → "..\engine\dpi_simple.exe" will fail if uvicorn is run from a different dir
+  → Fix: use os.path.dirname(__file__) to build absolute paths
+
+ISSUE D: Blocking architecture
+  → Currently the engine decides what to block (rule_manager)
+  → In 2.0, ML might want to block IPs/connections flagged as attacks
+  → Options:
+      (1) FastAPI sends block commands back to engine via stdin ← complex
+      (2) Engine just reports; server maintains its own block list ← simpler
+      (3) Engine exposes a REST/socket control interface ← cleanest long-term
+
+ISSUE E: Model files are in server/ml/ (already there!)
+  → anomaly_detector.pkl (1.4 MB) and threat_classifier.pkl (6.8 MB) exist
+  → These are the trained models from the ML repo — ready to use
+  → Just need the inference code (ml_predictor.py) to load them
+
+--------------------------------------------------------------------------------
+IMMEDIATE NEXT STEPS (START HERE)
+--------------------------------------------------------------------------------
+
+  Step 1: Fix ENGINE_CMD paths in server.py (Issue C) — 5 min fix
+  Step 2: Add /health endpoint to server.py — 5 min
+  Step 3: Write server/ml_predictor.py — loads .pkl, runs predict() — 30 min
+  Step 4: Write server/ml_bridge.py — sliding window buffer — 30 min
+  Step 5: Wire ml_bridge + ml_predictor into /stream/enriched — 30 min
+  Step 6: Add "size" and "flags" fields to engine JSON output — rebuild — 1 hr
+  Step 7: Test full pipeline: engine → server → ML → SSE output — 30 min
+  Step 8: Build minimal dashboard HTML to visualise the stream — 1-2 hrs
+
+================================================================================
+IS THIS ACHIEVABLE? YES. 100%.
+================================================================================
+
+Both systems are well-structured and the integration point is crystal clear:
+
+  Engine   → already emits NDJSON per packet (stdout, --json flag)
+  ML Model → already trained, .pkl files already in server/ml/
+  Bridge   → server.py is a FastAPI app that can buffer + enrich + stream
+
+The main gap is the WINDOW AGGREGATION LAYER in server.py. The engine speaks
+"one packet at a time" but the ML model thinks in "25-packet windows." We need
+~100 lines of Python to bridge this. Everything else is plumbing.
+
+The only tricky parts are:
+  - Missing "size" and "flags" in engine JSON (fixable in C++)
+  - Keeping the SSE stream responsive while buffering 25 packets
+    (use asyncio + async generator for non-blocking streaming)
+
+================================================================================
+END OF ROADMAP — UPDATE THIS FILE AS STEPS ARE COMPLETED
+================================================================================
