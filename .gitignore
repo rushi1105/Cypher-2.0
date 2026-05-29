@@ -1,0 +1,30 @@
+# binaries
+*.exe
+*.out
+
+# packet captures
+*.pcap
+*.pcapng
+
+# generated files
+*.jsonl
+output*
+build/
+
+# python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# frontend
+node_modules/
+
+# vscode
+.vscode/
+
+# models
+*.pkl
+
+# OS
+.DS_Store
