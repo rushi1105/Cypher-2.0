@@ -87,8 +87,8 @@ The project is complete when all of these are true:
 | Live capture | Missing | File replay only |
 | Dashboard | Done, local | Next.js packet table, charts, threat/MITRE panel, exports, replay controls; screenshot in `docs/` |
 | Persistence | Missing | No Postgres schema, migrations, or SQL queries |
-| Tests/CI | Missing | One manual smoke script; no GitHub Actions |
-| Packaging | Missing | No Dockerfile or docker-compose |
+| Tests/CI | Done | 26 tests; GitHub Actions green; API and dashboard Docker images build in CI |
+| Packaging | Partial | Dockerfiles and compose exist; images build in CI, but compose has not run locally |
 | Deployment | Missing | No public URL, Postgres, or hosted dashboard |
 | Repo hygiene | Partial | No top-level README, license, description, or topics |
 
@@ -341,10 +341,11 @@ Live mode:
 - [ ] Wire the integration test into CI.
 - [ ] Deterministic model stub for CI.
 - [ ] Cross-platform build test: Windows and Linux.
-- [ ] Add a `Dockerfile` for the API and engine.
-- [ ] Add `docker-compose.yml` with API, Postgres, and dashboard so `docker compose up` runs the whole stack.
-- [ ] Add GitHub Actions CI that runs lint, tests, and the Docker build on every push.
-- [ ] Add a green CI badge to the README.
+- [x] Add a `Dockerfile` for the API and engine.
+- [x] Add `docker-compose.yml` with API, Postgres, and dashboard.
+- [x] Add GitHub Actions CI that runs tests, the dashboard build, and both Docker builds on every push.
+- [x] Add a green CI badge to the README.
+- [ ] Run `docker compose up` locally and verify all three services together.
 - [ ] Throughput benchmark: packets/sec, MB/sec, drop rate.
 - [ ] Latency benchmark: packet -> detection -> dashboard.
 - [ ] ML evaluation report with metrics and plots.
@@ -515,7 +516,7 @@ Rule engine on the synthetic `test_attack.pcap`:
 | M4 | Real-time streaming backend with one capture session and multi-client SSE |
 | M4 | PostgreSQL schema, indexes, migrations, and analytical SQL for sessions/flows/alerts |
 | M5 | Next.js dashboard with packet table, charts, threat/MITRE panel, replay controls, and CSV/JSON export (verified locally) |
-| M6 | Dockerized stack, GitHub Actions CI, and benchmarked throughput/latency |
+| M6 | Dockerfiles and compose scaffold with CI-tested API/dashboard image builds; local compose verification and benchmarks pending |
 | M7 | Publicly deployed read-only demo with a clickable live URL and documented live mode |
 
 Do not use a claim before its milestone is complete.
@@ -613,6 +614,8 @@ Suggested changelog format:
 - Added retrieval tests; full suite now 26 tests passing.
 - Added `POST /upload` with a 50 MB limit and a dashboard **Upload PCAP** action; uploaded captures stream through the same `/stream/live` pipeline.
 - Verified upload end-to-end: `test_attack.pcap` uploaded, then streamed through `/stream/detections` and produced all six expected rule alerts.
+- GitHub Actions CI is green across the checkpoint, dashboard, and RAG commits; both API and dashboard Docker images build successfully in CI.
+- Added the CI badge to the README. Local `docker compose up` remains pending because Docker is not installed on this machine.
 
 ---
 

@@ -1,5 +1,7 @@
 # Cypher 2.0 — Deep Packet Analyser & Threat Detection System
 
+[![CI](https://github.com/rushi1105/Cypher-2.0/actions/workflows/ci.yml/badge.svg)](https://github.com/rushi1105/Cypher-2.0/actions/workflows/ci.yml)
+
 Cypher is a PCAP-based deep packet analysis and ML-assisted anomaly scoring platform. A C++17 engine parses Ethernet/IPv4/TCP/UDP traffic, tracks bidirectional flows, extracts TLS SNI, HTTP Host, and DNS metadata, classifies applications, applies IP/app/domain block rules, and emits NDJSON plus a filtered PCAP. A FastAPI bridge replays the capture, aggregates windows into ML features, and exposes raw, enriched, window, stats, and threat streams.
 
 > **Current status:** the offline pipeline and local dashboard are working end-to-end (engine -> FastAPI -> ML/rules/RAG -> SSE -> Next.js). A reproducible CIC-IDS2017 pipeline is complete, the 24-feature flow models are served at `/stream/flows`, deterministic rules with MITRE ATT&CK mapping are served at `/stream/detections`, and grounded ATT&CK explanations are available through `/explain`. The legacy `/stream/windows` endpoints still use the old 11-feature model. Live capture, Postgres integration, Docker/CI verification, and public deployment are still in progress. See [ROADMAP.md](ROADMAP.md) for the exact state.
