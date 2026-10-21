@@ -9,8 +9,6 @@ import {
   Legend,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -39,6 +37,34 @@ function ChartCard({ title, children }: { title: string; children: ReactNode }) 
   );
 }
 
+function ProtocolBars({ data }: { data: ChartDatum[] }) {
+  const total = data.reduce((sum, item) => sum + item.value, 0);
+  if (total === 0) {
+    return <div className="empty-row">No protocol data yet.</div>;
+  }
+  return (
+    <div className="protocol-bars">
+      {data.map((item, index) => (
+        <div key={item.name} className="protocol-row">
+          <span className="protocol-dot" style={{ background: COLORS[index % COLORS.length] }} />
+          <span className="protocol-name">{item.name}</span>
+          <div className="protocol-track">
+            <span
+              className="protocol-fill"
+              style={{
+                width: `${Math.max((item.value / total) * 100, 3)}%`,
+                background: COLORS[index % COLORS.length],
+              }}
+            />
+          </div>
+          <strong className="protocol-value">{item.value}</strong>
+        </div>
+      ))}
+      <div className="protocol-total">{total.toLocaleString()} packets</div>
+    </div>
+  );
+}
+
 export function Charts({
   protocols,
   apps,
@@ -55,17 +81,7 @@ export function Charts({
   return (
     <div className="charts-grid">
       <ChartCard title="Protocol split">
-        <ResponsiveContainer width="100%" height={210}>
-          <PieChart>
-            <Pie data={protocols} dataKey="value" nameKey="name" innerRadius={50} outerRadius={82}>
-              {protocols.map((entry, index) => (
-                <Cell key={entry.name} fill={COLORS[index % COLORS.length]} />
-              ))}
-            </Pie>
-            <Tooltip contentStyle={TOOLTIP_STYLE} />
-            <Legend />
-          </PieChart>
-        </ResponsiveContainer>
+        <ProtocolBars data={protocols} />
       </ChartCard>
 
       <ChartCard title="Top applications">

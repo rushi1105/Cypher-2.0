@@ -309,6 +309,57 @@ select {
   margin-top: 6px;
 }
 
+.protocol-bars {
+  display: grid;
+  gap: 14px;
+  padding: 26px 4px 8px;
+}
+
+.protocol-row {
+  display: grid;
+  grid-template-columns: 10px 54px minmax(0, 1fr) 34px;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.protocol-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 10px currentColor;
+}
+
+.protocol-name {
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.protocol-track {
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(30, 58, 95, 0.7);
+  overflow: hidden;
+}
+
+.protocol-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.protocol-value {
+  text-align: right;
+  font-size: 12px;
+}
+
+.protocol-total {
+  color: var(--muted);
+  font-size: 11px;
+  border-top: 1px solid rgba(30, 58, 95, 0.6);
+  padding-top: 12px;
+}
+
 .recharts-text {
   fill: var(--muted);
 }

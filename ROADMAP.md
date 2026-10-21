@@ -85,7 +85,7 @@ The project is complete when all of these are true:
 | RAG threat intelligence | Missing | No knowledge base, retrieval, or grounded explanations |
 | Measured ML metrics | Missing | No evaluation, no recall/F1 numbers, no model card |
 | Live capture | Missing | File replay only |
-| Dashboard | Missing | `dashboard/` is empty |
+| Dashboard | Done, local | Next.js packet table, charts, threat/MITRE panel, exports, replay controls; screenshot in `docs/` |
 | Persistence | Missing | No Postgres schema, migrations, or SQL queries |
 | Tests/CI | Missing | One manual smoke script; no GitHub Actions |
 | Packaging | Missing | No Dockerfile or docker-compose |
@@ -313,18 +313,21 @@ Live mode:
 
 **Goal:** make the system understandable at a glance.
 
-- [ ] Choose Next.js (recommended) or React + Vite.
-- [ ] Build a dark navy/cyan Cypher theme.
-- [ ] Packet table: timestamp, src, dst, protocol, app, SNI, status, threat.
-- [ ] Filters: protocol, app, IP substring, severity.
-- [ ] Charts: protocol split, top apps, packets/sec, severity over time.
-- [ ] Threat panel: rule, ML, combined, MITRE technique, confidence, evidence.
-- [ ] Capture controls: interface, start/stop, BPF filter, replay speed.
-- [ ] Export CSV/JSON and a printable report.
-- [ ] Empty/loading/error states.
-- [ ] Responsive layout and 500-row cap.
+- [x] Choose Next.js.
+- [x] Build a dark navy/cyan Cypher theme.
+- [x] Packet table: timestamp, src, dst, protocol, app, SNI, status, threat.
+- [x] Filters: protocol, app, IP substring, blocked-only.
+- [x] Charts: protocol split, top apps, packets/sec, severity split, ML flow categories.
+- [x] Threat panel: rule and ML alerts, MITRE technique, severity, evidence.
+- [x] Replay controls: PCAP selector, start/stop, autostart URL.
+- [ ] Live capture controls: interface, BPF filter, replay speed.
+- [x] Export CSV/JSON.
+- [ ] Printable report.
+- [x] Empty/loading/error states.
+- [x] Responsive layout and 500-row cap.
+- [x] Dashboard screenshot captured in `docs/dashboard-preview.png`.
 
-**Exit criteria:** a recruiter can open the dashboard and understand the system in under 30 seconds.
+**Exit criteria:** a recruiter can open the dashboard and understand the system in under 30 seconds. Verified locally with `test_attack.pcap`.
 
 ## M6 — Testing, packaging, CI, benchmarks, security
 
@@ -506,7 +509,7 @@ Rule engine on the synthetic `test_attack.pcap`:
 | M3B | RAG-grounded alert explanations with valid ATT&CK citations and retrieval evaluation |
 | M4 | Real-time streaming backend with one capture session and multi-client SSE |
 | M4 | PostgreSQL schema, indexes, migrations, and analytical SQL for sessions/flows/alerts |
-| M5 | Next.js/React dashboard with packet table, charts, threat timeline, and export |
+| M5 | Next.js dashboard with packet table, charts, threat/MITRE panel, replay controls, and CSV/JSON export (verified locally) |
 | M6 | Dockerized stack, GitHub Actions CI, and benchmarked throughput/latency |
 | M7 | Publicly deployed read-only demo with a clickable live URL and documented live mode |
 
@@ -596,6 +599,9 @@ Suggested changelog format:
 - Added `GET /stream/detections`, `GET /rules`, and `?pcap=filename.pcap` selection on stream endpoints.
 - Added `engine/generate_attack_pcap.py` and `engine/test_attack.pcap`.
 - Verified six rule alerts on the attack PCAP: port scan (T1046), SYN flood (T1498), DNS flood (T1498), suspicious port (T1571), brute force (T1110), beaconing (T1071).
+- Built the Next.js dashboard with replay controls, packet table, charts, threat/MITRE panel, ML flow predictions, and CSV/JSON export.
+- Verified the dashboard in a headless browser with `test_attack.pcap`: 173 packets, 94 flows, 7 alerts, and a live MITRE-mapped threat panel. Screenshot: `docs/dashboard-preview.png`.
+- Replaced the blank Recharts protocol pie with deterministic CSS protocol bars after visual verification exposed a rendering issue.
 
 ---
 

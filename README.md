@@ -2,7 +2,9 @@
 
 Cypher is a PCAP-based deep packet analysis and ML-assisted anomaly scoring platform. A C++17 engine parses Ethernet/IPv4/TCP/UDP traffic, tracks bidirectional flows, extracts TLS SNI, HTTP Host, and DNS metadata, classifies applications, applies IP/app/domain block rules, and emits NDJSON plus a filtered PCAP. A FastAPI bridge replays the capture, aggregates windows into ML features, and exposes raw, enriched, window, stats, and threat streams.
 
-> **Current status:** offline PCAP replay is working and has been verified end-to-end (engine -> FastAPI -> ML/rules -> SSE). A reproducible CIC-IDS2017 pipeline is complete, the 24-feature flow models are served at `/stream/flows`, and deterministic rules with MITRE ATT&CK mapping are served at `/stream/detections`. The legacy `/stream/windows` endpoints still use the old 11-feature model. Live capture, the dashboard, RAG explanations, Postgres, Docker, CI, and public deployment are in progress. See [ROADMAP.md](ROADMAP.md) for the exact state.
+> **Current status:** the offline pipeline and local dashboard are working end-to-end (engine -> FastAPI -> ML/rules -> SSE -> Next.js). A reproducible CIC-IDS2017 pipeline is complete, the 24-feature flow models are served at `/stream/flows`, and deterministic rules with MITRE ATT&CK mapping are served at `/stream/detections`. The legacy `/stream/windows` endpoints still use the old 11-feature model. Live capture, RAG explanations, Postgres integration, Docker/CI verification, and public deployment are still in progress. See [ROADMAP.md](ROADMAP.md) for the exact state.
+
+![Cypher dashboard](docs/dashboard-preview.png)
 
 ## What works today
 
@@ -51,7 +53,7 @@ Cypher/
 ├── server/                 FastAPI bridge, ML bridge, predictor, models
 ├── ml/                     CIC-IDS2017 training, evaluation, reports
 ├── data/                   Dataset workspace and manifest (raw data ignored)
-├── dashboard/              Next.js dashboard (planned)
+├── dashboard/              Next.js dashboard
 ├── docs/                   Demo output and verification evidence
 ├── tests/                  Engine/output tests
 ├── scripts/                Build, run, download, and verification helpers
@@ -120,10 +122,31 @@ Invoke-RestMethod http://127.0.0.1:8000/stats
 Invoke-RestMethod http://127.0.0.1:8000/threats
 ```
 
-SSE streams are best consumed with a browser, `curl`, or the future dashboard:
+SSE streams are best consumed with a browser, `curl`, or the dashboard:
 
 ```powershell
 curl.exe -N http://127.0.0.1:8000/stream/windows
+```
+
+## Dashboard
+
+```powershell
+cd dashboard
+npm install
+npm run dev
+```
+
+Open http://127.0.0.1:3000. To auto-start the attack replay:
+
+```text
+http://127.0.0.1:3000/?pcap=test_attack.pcap&autostart=1
+```
+
+Set `NEXT_PUBLIC_API_BASE` if the API is not at `http://127.0.0.1:8000`:
+
+```powershell
+$env:NEXT_PUBLIC_API_BASE = "http://127.0.0.1:8000"
+npm run dev
 ```
 
 Run the engine tests:
@@ -254,7 +277,7 @@ The rule engine supports suppression windows, per-rule evidence, severity counte
 ## Current limitations
 
 - The server replays a fixed `engine/test_dpi.pcap`; it does not capture live traffic yet.
-- The dashboard is not built yet.
+- The dashboard is local-only; public deployment is still pending.
 - The legacy `/stream/windows` model uses 11 features; `/stream/flows` uses the new 24-feature model.
 - The CIC-IDS2017 pipeline has no self-captured baseline or controlled lab attack traffic yet.
 - Serving features approximate CICFlowMeter semantics using the engine JSON; packet bytes are estimated as frame size minus the Ethernet header.
