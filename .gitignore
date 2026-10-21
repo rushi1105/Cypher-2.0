@@ -5,17 +5,26 @@
 # packet captures
 *.pcap
 *.pcapng
+!engine/test_dpi.pcap
+!engine/test_attack.pcap
 
 # generated files
 *.jsonl
+*.log
 output*
 build/
+.next/
+dist/
+coverage/
+postgres-data/
 
 # python
 __pycache__/
 *.pyc
 venv/
 .venv/
+.env
+.env.local
 
 # frontend
 node_modules/
@@ -25,6 +34,16 @@ node_modules/
 
 # models
 *.pkl
+!server/ml/
+!server/ml/*.pkl
+
+# datasets and training artifacts
+data/raw/
+data/processed/
+ml/artifacts/
+
+# legacy linux binary
+engine/dpi_engine
 
 # OS
 .DS_Store

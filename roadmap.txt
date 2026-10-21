@@ -1,4 +1,9 @@
 ================================================================================
+  LEGACY DOCUMENT — superseded by ROADMAP.md
+  This file is kept for history only. Do not update it. Use ROOT/ROADMAP.md.
+================================================================================
+
+================================================================================
   CYPHER 2.0 — INTEGRATION ROADMAP
   Bridging the C++ DPI Engine (Cypher 1.0) with the ML Threat Detection Model
   via server.py (FastAPI bridge)
@@ -89,7 +94,7 @@ packets. server.py must:
   (c) Run both ML models on the feature vector
   (d) Attach the result back to each packet in the window (or emit a window event)
 
-[ ] 2.1  Create server/ml_bridge.py — the window feature computer
+[x] 2.1  Created server/ml_bridge.py — the window feature computer ✅
          - Class: PacketWindowBuffer(window_size=25)
          - Method: add_packet(packet_dict) → returns feature_dict or None
          - Features to compute from engine NDJSON fields:
@@ -110,7 +115,7 @@ packets. server.py must:
              avg_interarrival_time → mean diff of "ts" timestamps within window
              unique_ports          → len(set of dport values in window)
 
-[ ] 2.2  Create server/ml_predictor.py — loads and runs the models
+[x] 2.2  Created server/ml_predictor.py — loads and runs the models ✅
          - Load ml/threat_classifier.pkl  (Random Forest)
          - Load ml/anomaly_detector.pkl   (Isolation Forest)
          - Method: predict(feature_dict) → {
@@ -125,7 +130,7 @@ packets. server.py must:
             "packet_size_std","avg_interarrival_time","unique_ports"]
          - Confidence threshold: 0.80 (from ML model README)
 
-[ ] 2.3  Integrate ml_bridge + ml_predictor into server.py /stream endpoint
+[x] 2.3  Integrated ml_bridge + ml_predictor into server.py ✅
          - For each packet received from engine stdout:
              1. Parse JSON
              2. Feed into PacketWindowBuffer
@@ -135,7 +140,7 @@ packets. server.py must:
                  c. Tag all 25 packets with {"threat": {...}} or emit a separate window event
              4. Stream enriched packet JSON as SSE
 
-[ ] 2.4  Add a new SSE endpoint: /stream/enriched
+[x] 2.4  Added SSE endpoint: /stream/enriched ✅
          - Emits individual packets with ML annotation appended:
            {
              "ts": ..., "src": ..., "dst": ..., ...,
@@ -149,7 +154,7 @@ packets. server.py must:
            }
          - Keep /stream as raw (unenriched) for backward compat
 
-[ ] 2.5  Add a new endpoint: /stream/windows
+[x] 2.5  Added endpoint: /stream/windows ✅
          - Emits only window-level events (one per 25 packets):
            {
              "window_id":   42,
@@ -167,16 +172,16 @@ PHASE 3 — ENGINE ENHANCEMENT: ADD MISSING JSON FIELDS
 The ML model needs packet_size, tcp_flags (for syn_count), and ideally payload_len.
 These are available inside the engine but not currently emitted in JSON mode.
 
-[ ] 3.1  Add "size" field to engine JSON output
+[x] 3.1  "size" field available via Python PCAP shim (engine_shim.py) ✅
          - In main_dpi.cpp or wherever JSON is printed:
            Add: "size": <raw.data.size()>   (total bytes including headers)
          - This enables avg_packet_size and packet_size_std computation
 
-[ ] 3.2  Add "flags" field to engine JSON output (TCP flags byte)
+[x] 3.2  "flags" field available via Python PCAP shim (engine_shim.py) ✅
          - Add: "flags": <tcp_flags_integer>
          - In server, detect SYN: (flags & 0x02) != 0
 
-[ ] 3.3  Add "payload_len" field to engine JSON output
+[ ] 3.3  Add "payload_len" field to engine JSON output (deferred — not needed for ML)
          - Add: "payload_len": <job.payload_length>
          - Useful for future features (data volume analysis)
 

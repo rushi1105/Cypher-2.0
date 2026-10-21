@@ -1,0 +1,13 @@
+              precision    recall  f1-score   support
+
+      Normal       0.98      0.98      0.98    298668
+        Scan       0.88      1.00      0.94     13623
+    DoS/DDoS       1.00      0.84      0.91     48111
+ Brute Force       0.98      0.96      0.97      1363
+  Web Attack       0.36      0.89      0.51       314
+      Bot/C2       0.00      0.00      0.00       293
+       Other       1.00      0.67      0.80         6
+
+    accuracy                           0.96    362378
+   macro avg       0.74      0.76      0.73    362378
+weighted avg       0.98      0.96      0.97    362378

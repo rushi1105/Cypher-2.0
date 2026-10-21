@@ -8,6 +8,7 @@
 #include <unordered_set>
 #include <algorithm>
 #include <sstream>
+#include <tuple>
 
 #include "pcap_reader.h"
 #include "packet_parser.h"
@@ -22,9 +23,15 @@ struct Flow {
     FiveTuple tuple;
     AppType   app_type = AppType::UNKNOWN;
     std::string sni;
+    std::string client_ip;
+    std::string server_ip;
+    uint16_t client_port = 0;
+    uint16_t server_port = 0;
+    uint32_t flow_id = 0;
     uint64_t packets = 0;
     uint64_t bytes   = 0;
     bool blocked     = false;
+    std::string block_reason;
 };
 
 // ── Blocking rules ────────────────────────────────────────────────────────────
@@ -52,12 +59,32 @@ public:
         blocked_domains.push_back(domain);
         std::cerr << "[Rules] Blocked domain: " << domain << "\n";
     }
-    bool isBlocked(uint32_t src_ip, AppType app, const std::string& sni) const {
-        if (blocked_ips.count(src_ip)) return true;
-        if (blocked_apps.count(app))   return true;
-        for (const auto& dom : blocked_domains)
-            if (sni.find(dom) != std::string::npos) return true;
+    bool isBlocked(uint32_t ip, AppType app, const std::string& sni) const {
+        if (blocked_ips.count(ip)) return true;
+        if (blocked_apps.count(app)) return true;
+        if (!sni.empty()) {
+            if (blocked_apps.count(sniToAppType(sni))) return true;
+            std::string lower_sni = sni;
+            std::transform(lower_sni.begin(), lower_sni.end(), lower_sni.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+            for (const auto& dom : blocked_domains) {
+                std::string lower_dom = dom;
+                std::transform(lower_dom.begin(), lower_dom.end(), lower_dom.begin(),
+                               [](unsigned char c) { return std::tolower(c); });
+                if (domainMatches(lower_sni, lower_dom)) return true;
+            }
+        }
         return false;
+    }
+
+    static bool domainMatches(const std::string& domain, const std::string& pattern) {
+        if (pattern.size() >= 2 && pattern[0] == '*' && pattern[1] == '.') {
+            std::string suffix = pattern.substr(1);
+            return (domain.size() >= suffix.size() &&
+                    domain.compare(domain.size() - suffix.size(), suffix.size(), suffix) == 0) ||
+                   domain == pattern.substr(2);
+        }
+        return domain.find(pattern) != std::string::npos;
     }
 
 private:
@@ -89,10 +116,85 @@ static std::string jsonEscape(const std::string& s) {
     return out;
 }
 
+static FiveTuple canonicalTuple(const FiveTuple& t) {
+    if (std::tie(t.src_ip, t.src_port) <= std::tie(t.dst_ip, t.dst_port)) {
+        return t;
+    }
+    return t.reverse();
+}
+
+static bool packetPayload(const RawPacket& raw, const ParsedPacket& parsed,
+                          size_t& offset, size_t& length) {
+    if (raw.data.size() < 14) return false;
+
+    size_t ip_offset = 14;
+    uint8_t ip_ihl = raw.data[ip_offset] & 0x0F;
+    if (ip_ihl < 5) return false;
+
+    size_t transport_offset = ip_offset + ip_ihl * 4;
+    if (transport_offset > raw.data.size()) return false;
+
+    if (parsed.has_tcp) {
+        if (transport_offset + 20 > raw.data.size()) return false;
+        uint8_t tcp_offset = (raw.data[transport_offset + 12] >> 4) & 0x0F;
+        if (tcp_offset < 5) return false;
+        offset = transport_offset + tcp_offset * 4;
+    } else if (parsed.has_udp) {
+        offset = transport_offset + 8;
+    } else {
+        return false;
+    }
+
+    if (offset > raw.data.size()) return false;
+    length = raw.data.size() - offset;
+    return true;
+}
+
+static void initializeFlowEndpoints(Flow& flow, const ParsedPacket& parsed) {
+    auto wellKnown = [](uint16_t port) {
+        return port == 53 || port == 80 || port == 443 ||
+               port == 8080 || port == 8443;
+    };
+
+    bool syn = (parsed.tcp_flags & 0x02) != 0;
+    bool ack = (parsed.tcp_flags & 0x10) != 0;
+    bool src_well_known = wellKnown(parsed.src_port);
+    bool dst_well_known = wellKnown(parsed.dest_port);
+
+    bool src_is_client = true;
+    if (syn && !ack) {
+        src_is_client = true;
+    } else if (syn && ack) {
+        src_is_client = false;
+    } else if (dst_well_known && !src_well_known) {
+        src_is_client = true;
+    } else if (src_well_known && !dst_well_known) {
+        src_is_client = false;
+    }
+
+    if (src_is_client) {
+        flow.client_ip = parsed.src_ip;
+        flow.client_port = parsed.src_port;
+        flow.server_ip = parsed.dest_ip;
+        flow.server_port = parsed.dest_port;
+    } else {
+        flow.client_ip = parsed.dest_ip;
+        flow.client_port = parsed.dest_port;
+        flow.server_ip = parsed.src_ip;
+        flow.server_port = parsed.src_port;
+    }
+}
+
+static bool isOutbound(const Flow& flow, const ParsedPacket& parsed) {
+    return parsed.src_ip == flow.client_ip && parsed.src_port == flow.client_port;
+}
+
 // Emit one JSON line per packet to stdout.
 // Format: {"ts":1234567.890123,"src":"1.2.3.4","dst":"5.6.7.8",
 //          "sport":54321,"dport":443,"proto":"TCP",
-//          "app":"YouTube","sni":"www.youtube.com","blocked":false}
+//          "app":"YouTube","sni":"www.youtube.com","blocked":false,
+//          "size":123,"flags":24,"payload_len":80,
+//          "direction":"outbound","flow_id":1,"block_reason":""}
 static void emitJSON(
     uint32_t ts_sec, uint32_t ts_usec,
     const std::string& src_ip, const std::string& dst_ip,
@@ -100,7 +202,13 @@ static void emitJSON(
     uint8_t  protocol,
     AppType  app_type,
     const std::string& sni,
-    bool     blocked)
+    bool     blocked,
+    size_t   size,
+    uint8_t  flags,
+    size_t   payload_len,
+    const std::string& direction,
+    uint32_t flow_id,
+    const std::string& block_reason)
 {
     // Build timestamp as seconds.microseconds
     std::ostringstream ts_ss;
@@ -118,7 +226,13 @@ static void emitJSON(
         << "\"proto\":\""  << proto_str                           << "\","
         << "\"app\":\""    << jsonEscape(appTypeToString(app_type))<< "\","
         << "\"sni\":\""    << jsonEscape(sni)                     << "\","
-        << "\"blocked\":"  << (blocked ? "true" : "false")
+        << "\"blocked\":"  << (blocked ? "true" : "false")        << ","
+        << "\"size\":"     << size                                << ","
+        << "\"flags\":"    << static_cast<int>(flags)             << ","
+        << "\"payload_len\":" << payload_len                      << ","
+        << "\"direction\":\"" << jsonEscape(direction)            << "\","
+        << "\"flow_id\":"  << flow_id                             << ","
+        << "\"block_reason\":\"" << jsonEscape(block_reason)      << "\""
         << "}\n";
     std::cout.flush();  // important — FastAPI reads line-by-line
 }
@@ -228,78 +342,72 @@ int main(int argc, char* argv[]) {
         tuple.dst_port = parsed.dest_port;
         tuple.protocol = parsed.protocol;
 
-        // Get or create flow
-        Flow& flow = flows[tuple];
-        if (flow.packets == 0) flow.tuple = tuple;
+        FiveTuple key = canonicalTuple(tuple);
+        bool new_flow = false;
+        auto flow_it = flows.find(key);
+        if (flow_it == flows.end()) {
+            Flow fresh;
+            fresh.tuple = key;
+            fresh.flow_id = static_cast<uint32_t>(flows.size() + 1);
+            initializeFlowEndpoints(fresh, parsed);
+            flow_it = flows.emplace(key, std::move(fresh)).first;
+            new_flow = true;
+        }
+
+        Flow& flow = flow_it->second;
+        (void)new_flow;
         flow.packets++;
         flow.bytes += raw.data.size();
 
-        // ── SNI extraction (HTTPS port 443) ──────────────────────────────────
-        if ((flow.app_type == AppType::UNKNOWN || flow.app_type == AppType::HTTPS) &&
-            flow.sni.empty() && parsed.has_tcp && parsed.dest_port == 443) {
+        bool outbound = isOutbound(flow, parsed);
+        const char* direction = outbound ? "outbound" : "inbound";
 
-            size_t payload_offset = 14;
-            uint8_t ip_ihl = raw.data[14] & 0x0F;
-            payload_offset += ip_ihl * 4;
+        size_t payload_offset = 0;
+        size_t payload_len = 0;
+        bool has_payload = packetPayload(raw, parsed, payload_offset, payload_len);
+        const uint8_t* payload = has_payload ? raw.data.data() + payload_offset : nullptr;
 
-            if (payload_offset + 12 < raw.data.size()) {
-                uint8_t tcp_offset = (raw.data[payload_offset + 12] >> 4) & 0x0F;
-                payload_offset += tcp_offset * 4;
-
-                if (payload_offset < raw.data.size()) {
-                    size_t payload_len = raw.data.size() - payload_offset;
-                    if (payload_len > 5) {
-                        auto sni = SNIExtractor::extract(
-                            raw.data.data() + payload_offset, payload_len);
-                        if (sni) {
-                            flow.sni      = *sni;
-                            flow.app_type = sniToAppType(*sni);
-                        }
-                    }
+        if (outbound && flow.sni.empty() && flow.server_port == 443) {
+            if (has_payload && payload_len > 5) {
+                auto sni = SNIExtractor::extract(payload, payload_len);
+                if (sni) {
+                    flow.sni = *sni;
+                    flow.app_type = sniToAppType(*sni);
                 }
             }
         }
 
-        // ── HTTP Host extraction (port 80) ───────────────────────────────────
-        if ((flow.app_type == AppType::UNKNOWN || flow.app_type == AppType::HTTP) &&
-            flow.sni.empty() && parsed.has_tcp && parsed.dest_port == 80) {
-
-            size_t payload_offset = 14;
-            uint8_t ip_ihl = raw.data[14] & 0x0F;
-            payload_offset += ip_ihl * 4;
-
-            if (payload_offset + 12 < raw.data.size()) {
-                uint8_t tcp_offset = (raw.data[payload_offset + 12] >> 4) & 0x0F;
-                payload_offset += tcp_offset * 4;
-
-                if (payload_offset < raw.data.size()) {
-                    size_t payload_len = raw.data.size() - payload_offset;
-                    auto host = HTTPHostExtractor::extract(
-                        raw.data.data() + payload_offset, payload_len);
-                    if (host) {
-                        flow.sni      = *host;
-                        flow.app_type = sniToAppType(*host);
-                    }
+        if (outbound && flow.sni.empty() && flow.server_port == 80) {
+            if (has_payload && payload_len > 0) {
+                auto host = HTTPHostExtractor::extract(payload, payload_len);
+                if (host) {
+                    flow.sni = *host;
+                    flow.app_type = sniToAppType(*host);
                 }
             }
         }
 
-        // ── DNS ───────────────────────────────────────────────────────────────
-        if (flow.app_type == AppType::UNKNOWN &&
-            (parsed.dest_port == 53 || parsed.src_port == 53)) {
-            flow.app_type = AppType::DNS;
+        if (flow.server_port == 53 && flow.sni.empty()) {
+            if (has_payload && payload_len > 12) {
+                auto domain = DNSExtractor::extractQuery(payload, payload_len);
+                if (domain) {
+                    flow.sni = *domain;
+                    flow.app_type = AppType::DNS;
+                }
+            }
         }
 
-        // ── Port-based fallback ───────────────────────────────────────────────
         if (flow.app_type == AppType::UNKNOWN) {
-            if      (parsed.dest_port == 443) flow.app_type = AppType::HTTPS;
-            else if (parsed.dest_port == 80)  flow.app_type = AppType::HTTP;
+            if      (flow.server_port == 443 || flow.server_port == 8443) flow.app_type = AppType::HTTPS;
+            else if (flow.server_port == 80  || flow.server_port == 8080) flow.app_type = AppType::HTTP;
+            else if (flow.server_port == 53) flow.app_type = AppType::DNS;
         }
 
-        // ── Blocking ──────────────────────────────────────────────────────────
         if (!flow.blocked) {
-            flow.blocked = rules.isBlocked(tuple.src_ip, flow.app_type, flow.sni);
+            flow.blocked = rules.isBlocked(tuple.src_ip, flow.app_type, flow.sni) ||
+                           rules.isBlocked(tuple.dst_ip, flow.app_type, flow.sni);
             if (flow.blocked) {
+                flow.block_reason = "rule";
                 log << "[BLOCKED] " << parsed.src_ip << " -> " << parsed.dest_ip
                     << " (" << appTypeToString(flow.app_type);
                 if (!flow.sni.empty()) log << ": " << flow.sni;
@@ -307,8 +415,6 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // ── JSON output ───────────────────────────────────────────────────────
-        // Emitted AFTER blocking decision so `blocked` field is accurate.
         if (json_mode) {
             emitJSON(
                 raw.header.ts_sec,
@@ -320,7 +426,13 @@ int main(int argc, char* argv[]) {
                 parsed.protocol,
                 flow.app_type,
                 flow.sni,
-                flow.blocked
+                flow.blocked,
+                raw.data.size(),
+                parsed.tcp_flags,
+                payload_len,
+                direction,
+                flow.flow_id,
+                flow.block_reason
             );
         }
 

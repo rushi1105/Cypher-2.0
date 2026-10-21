@@ -95,7 +95,20 @@ AppType sniToAppType(const std::string& sni) {
     std::string lower_sni = sni;
     std::transform(lower_sni.begin(), lower_sni.end(), lower_sni.begin(),
                    [](unsigned char c) { return std::tolower(c); });
-    
+
+    auto isDomain = [&](const std::string& domain) {
+        return lower_sni == domain ||
+               (lower_sni.size() > domain.size() &&
+                lower_sni.compare(lower_sni.size() - domain.size() - 1,
+                                  domain.size() + 1, "." + domain) == 0);
+    };
+
+    // Cloud providers need to be checked before their parent companies.
+    if (lower_sni.find("amazonaws") != std::string::npos) return AppType::AWS;
+    if (lower_sni.find("googleapis") != std::string::npos) return AppType::GCP;
+    if (lower_sni.find("azure") != std::string::npos ||
+        lower_sni.find("windows.net") != std::string::npos) return AppType::AZURE;
+
     // Check for known patterns
     // Google (including YouTube, which is owned by Google)
     if (lower_sni.find("google") != std::string::npos ||
@@ -117,7 +130,7 @@ AppType sniToAppType(const std::string& sni) {
     // Facebook/Meta
     if (lower_sni.find("facebook") != std::string::npos ||
         lower_sni.find("fbcdn") != std::string::npos ||
-        lower_sni.find("fb.com") != std::string::npos ||
+        isDomain("fb.com") ||
         lower_sni.find("fbsbx") != std::string::npos ||
         lower_sni.find("meta.com") != std::string::npos) {
         return AppType::FACEBOOK;
@@ -131,15 +144,15 @@ AppType sniToAppType(const std::string& sni) {
     
     // WhatsApp (owned by Meta)
     if (lower_sni.find("whatsapp") != std::string::npos ||
-        lower_sni.find("wa.me") != std::string::npos) {
+        isDomain("wa.me")) {
         return AppType::WHATSAPP;
     }
     
     // Twitter/X
     if (lower_sni.find("twitter") != std::string::npos ||
         lower_sni.find("twimg") != std::string::npos ||
-        lower_sni.find("x.com") != std::string::npos ||
-        lower_sni.find("t.co") != std::string::npos) {
+        isDomain("x.com") ||
+        isDomain("t.co")) {
         return AppType::TWITTER;
     }
     
@@ -152,9 +165,7 @@ AppType sniToAppType(const std::string& sni) {
     
     // Amazon
     if (lower_sni.find("amazon") != std::string::npos ||
-        lower_sni.find("amazonaws") != std::string::npos ||
-        lower_sni.find("cloudfront") != std::string::npos ||
-        lower_sni.find("aws") != std::string::npos) {
+        lower_sni.find("cloudfront") != std::string::npos) {
         return AppType::AMAZON;
     }
     
@@ -162,7 +173,6 @@ AppType sniToAppType(const std::string& sni) {
     if (lower_sni.find("microsoft") != std::string::npos ||
         lower_sni.find("msn.com") != std::string::npos ||
         lower_sni.find("office") != std::string::npos ||
-        lower_sni.find("azure") != std::string::npos ||
         lower_sni.find("live.com") != std::string::npos ||
         lower_sni.find("outlook") != std::string::npos ||
         lower_sni.find("bing") != std::string::npos) {
@@ -179,7 +189,7 @@ AppType sniToAppType(const std::string& sni) {
     
     // Telegram
     if (lower_sni.find("telegram") != std::string::npos ||
-        lower_sni.find("t.me") != std::string::npos) {
+        isDomain("t.me")) {
         return AppType::TELEGRAM;
     }
     
@@ -220,51 +230,47 @@ AppType sniToAppType(const std::string& sni) {
         return AppType::CLOUDFLARE;
     }
     // Social / video
-    if (sni.find("reddit")      != std::string::npos) return AppType::REDDIT;
-    if (sni.find("twitch")      != std::string::npos) return AppType::TWITCH;
-    if (sni.find("linkedin")    != std::string::npos) return AppType::LINKEDIN;
-    if (sni.find("snapchat")    != std::string::npos) return AppType::SNAPCHAT;
-    if (sni.find("pinterest")   != std::string::npos) return AppType::PINTEREST;
+    if (lower_sni.find("reddit")      != std::string::npos) return AppType::REDDIT;
+    if (lower_sni.find("twitch")      != std::string::npos) return AppType::TWITCH;
+    if (lower_sni.find("linkedin")    != std::string::npos) return AppType::LINKEDIN;
+    if (lower_sni.find("snapchat")    != std::string::npos) return AppType::SNAPCHAT;
+    if (lower_sni.find("pinterest")   != std::string::npos) return AppType::PINTEREST;
 
     // Developer / cloud
-    if (sni.find("stackoverflow") != std::string::npos) return AppType::STACKOVERFLOW;
-    if (sni.find("npmjs")         != std::string::npos) return AppType::NPM;
-    if (sni.find("docker")        != std::string::npos) return AppType::DOCKER;
-    if (sni.find("vercel")        != std::string::npos) return AppType::VERCEL;
-    if (sni.find("netlify")       != std::string::npos) return AppType::NETLIFY;
-    if (sni.find("heroku")        != std::string::npos) return AppType::HEROKU;
-    if (sni.find("digitalocean")  != std::string::npos) return AppType::DIGITALOCEAN;
-    if (sni.find("amazonaws")     != std::string::npos) return AppType::AWS;
-    if (sni.find("googleapis")    != std::string::npos) return AppType::GCP;
-    if (sni.find("azure")         != std::string::npos) return AppType::AZURE;
-    if (sni.find("windows.net")   != std::string::npos) return AppType::AZURE;
+    if (lower_sni.find("stackoverflow") != std::string::npos) return AppType::STACKOVERFLOW;
+    if (lower_sni.find("npmjs")         != std::string::npos) return AppType::NPM;
+    if (lower_sni.find("docker")        != std::string::npos) return AppType::DOCKER;
+    if (lower_sni.find("vercel")        != std::string::npos) return AppType::VERCEL;
+    if (lower_sni.find("netlify")       != std::string::npos) return AppType::NETLIFY;
+    if (lower_sni.find("heroku")        != std::string::npos) return AppType::HEROKU;
+    if (lower_sni.find("digitalocean")  != std::string::npos) return AppType::DIGITALOCEAN;
 
     // Productivity / SaaS
-    if (sni.find("slack")         != std::string::npos) return AppType::SLACK;
-    if (sni.find("notion")        != std::string::npos) return AppType::NOTION;
-    if (sni.find("figma")         != std::string::npos) return AppType::FIGMA;
-    if (sni.find("dropbox")       != std::string::npos) return AppType::DROPBOX;
-    if (sni.find("trello")        != std::string::npos) return AppType::TRELLO;
-    if (sni.find("atlassian")     != std::string::npos) return AppType::ATLASSIAN;
-    if (sni.find("gitlab")        != std::string::npos) return AppType::GITLAB;
-    if (sni.find("bitbucket")     != std::string::npos) return AppType::ATLASSIAN;
+    if (lower_sni.find("slack")         != std::string::npos) return AppType::SLACK;
+    if (lower_sni.find("notion")        != std::string::npos) return AppType::NOTION;
+    if (lower_sni.find("figma")         != std::string::npos) return AppType::FIGMA;
+    if (lower_sni.find("dropbox")       != std::string::npos) return AppType::DROPBOX;
+    if (lower_sni.find("trello")        != std::string::npos) return AppType::TRELLO;
+    if (lower_sni.find("atlassian")     != std::string::npos) return AppType::ATLASSIAN;
+    if (lower_sni.find("gitlab")        != std::string::npos) return AppType::GITLAB;
+    if (lower_sni.find("bitbucket")     != std::string::npos) return AppType::ATLASSIAN;
 
     // Payments / e-commerce
-    if (sni.find("paypal")        != std::string::npos) return AppType::PAYPAL;
-    if (sni.find("stripe")        != std::string::npos) return AppType::STRIPE;
-    if (sni.find("shopify")       != std::string::npos) return AppType::SHOPIFY;
+    if (lower_sni.find("paypal")        != std::string::npos) return AppType::PAYPAL;
+    if (lower_sni.find("stripe")        != std::string::npos) return AppType::STRIPE;
+    if (lower_sni.find("shopify")       != std::string::npos) return AppType::SHOPIFY;
 
     // AI / tech
-    if (sni.find("openai")        != std::string::npos) return AppType::OPENAI;
-    if (sni.find("anthropic")     != std::string::npos) return AppType::ANTHROPIC;
-    if (sni.find("huggingface")   != std::string::npos) return AppType::HUGGINGFACE;
-    if (sni.find("claude")        != std::string::npos) return AppType::ANTHROPIC;
-    if (sni.find("chatgpt")       != std::string::npos) return AppType::OPENAI;
+    if (lower_sni.find("openai")        != std::string::npos) return AppType::OPENAI;
+    if (lower_sni.find("anthropic")     != std::string::npos) return AppType::ANTHROPIC;
+    if (lower_sni.find("huggingface")   != std::string::npos) return AppType::HUGGINGFACE;
+    if (lower_sni.find("claude")        != std::string::npos) return AppType::ANTHROPIC;
+    if (lower_sni.find("chatgpt")       != std::string::npos) return AppType::OPENAI;
 
     // Media / comms
-    if (sni.find("twilio")        != std::string::npos) return AppType::TWILIO;
-    if (sni.find("adobe")         != std::string::npos) return AppType::ADOBE;
-    if (sni.find("canva")         != std::string::npos) return AppType::CANVA;
+    if (lower_sni.find("twilio")        != std::string::npos) return AppType::TWILIO;
+    if (lower_sni.find("adobe")         != std::string::npos) return AppType::ADOBE;
+    if (lower_sni.find("canva")         != std::string::npos) return AppType::CANVA;
     // If SNI is present but not recognized, still mark as TLS/HTTPS
     return AppType::HTTPS;
 }

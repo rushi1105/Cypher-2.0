@@ -132,6 +132,21 @@ class PacketWindowBuffer:
         features = self._compute_features(packets)
         return features, packets, self._window_id
 
+    def flush_partial(self) -> tuple[list[dict], int]:
+        """
+        Return the packets left in a partial window at stream end.
+
+        The partial window is cleared and the window id is advanced so callers
+        can label those packets as Pending without reusing a completed id.
+        """
+        if not self._window:
+            return [], self._window_id
+
+        packets = list(self._window)
+        self._window.clear()
+        self._window_id += 1
+        return packets, self._window_id
+
     # ── Feature computation ────────────────────────────────────────────────────
     def _compute_features(self, packets: list[dict]) -> dict:
         """

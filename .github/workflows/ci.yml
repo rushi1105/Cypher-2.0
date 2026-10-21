@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r server/requirements-dev.txt
+
+      - name: Build C++ engine
+        run: |
+          g++ -std=c++17 -O2 -pthread -I engine/include \
+            -o engine/dpi_simple.exe \
+            engine/src/main_working.cpp \
+            engine/src/pcap_reader.cpp \
+            engine/src/packet_parser.cpp \
+            engine/src/sni_extractor.cpp \
+            engine/src/types.cpp
+
+      - name: Run tests
+        run: python -m pytest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Build dashboard
+        working-directory: dashboard
+        run: npm run build
+
+      - name: Build API image
+        run: docker build -f Dockerfile.api -t cypher-api:ci .
+
+      - name: Build dashboard image
+        working-directory: dashboard
+        run: docker build -t cypher-dashboard:ci .

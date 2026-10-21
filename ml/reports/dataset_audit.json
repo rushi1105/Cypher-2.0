@@ -1,0 +1,179 @@
+{
+  "files": {
+    "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv": {
+      "rows": 225745,
+      "columns": 79,
+      "duplicate_rows": 2633,
+      "missing_cells": 4,
+      "labels": {
+        "DDoS": 128027,
+        "BENIGN": 97718
+      },
+      "has_timestamp": false
+    },
+    "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv": {
+      "rows": 286467,
+      "columns": 79,
+      "duplicate_rows": 72353,
+      "missing_cells": 15,
+      "labels": {
+        "PortScan": 158930,
+        "BENIGN": 127537
+      },
+      "has_timestamp": false
+    },
+    "Friday-WorkingHours-Morning.pcap_ISCX.csv": {
+      "rows": 191033,
+      "columns": 79,
+      "duplicate_rows": 6888,
+      "missing_cells": 28,
+      "labels": {
+        "BENIGN": 189067,
+        "Bot": 1966
+      },
+      "has_timestamp": false
+    },
+    "Monday-WorkingHours.pcap_ISCX.csv": {
+      "rows": 529918,
+      "columns": 79,
+      "duplicate_rows": 26935,
+      "missing_cells": 64,
+      "labels": {
+        "BENIGN": 529918
+      },
+      "has_timestamp": false
+    },
+    "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv": {
+      "rows": 288602,
+      "columns": 79,
+      "duplicate_rows": 35630,
+      "missing_cells": 18,
+      "labels": {
+        "BENIGN": 288566,
+        "Infiltration": 36
+      },
+      "has_timestamp": false
+    },
+    "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv": {
+      "rows": 170366,
+      "columns": 79,
+      "duplicate_rows": 6066,
+      "missing_cells": 20,
+      "labels": {
+        "BENIGN": 168186,
+        "Web Attack \\ufffd Brute Force": 1507,
+        "Web Attack \\ufffd XSS": 652,
+        "Web Attack \\ufffd Sql Injection": 21
+      },
+      "has_timestamp": false
+    },
+    "Tuesday-WorkingHours.pcap_ISCX.csv": {
+      "rows": 445909,
+      "columns": 79,
+      "duplicate_rows": 24065,
+      "missing_cells": 201,
+      "labels": {
+        "BENIGN": 432074,
+        "FTP-Patator": 7938,
+        "SSH-Patator": 5897
+      },
+      "has_timestamp": false
+    },
+    "Wednesday-workingHours.pcap_ISCX.csv": {
+      "rows": 692703,
+      "columns": 79,
+      "duplicate_rows": 81909,
+      "missing_cells": 1008,
+      "labels": {
+        "BENIGN": 440031,
+        "DoS Hulk": 231073,
+        "DoS GoldenEye": 10293,
+        "DoS slowloris": 5796,
+        "DoS Slowhttptest": 5499,
+        "Heartbleed": 11
+      },
+      "has_timestamp": false
+    }
+  },
+  "columns": [
+    "Destination Port",
+    "Flow Duration",
+    "Total Fwd Packets",
+    "Total Backward Packets",
+    "Total Length of Fwd Packets",
+    "Total Length of Bwd Packets",
+    "Fwd Packet Length Max",
+    "Fwd Packet Length Min",
+    "Fwd Packet Length Mean",
+    "Fwd Packet Length Std",
+    "Bwd Packet Length Max",
+    "Bwd Packet Length Min",
+    "Bwd Packet Length Mean",
+    "Bwd Packet Length Std",
+    "Flow Bytes/s",
+    "Flow Packets/s",
+    "Flow IAT Mean",
+    "Flow IAT Std",
+    "Flow IAT Max",
+    "Flow IAT Min",
+    "Fwd IAT Total",
+    "Fwd IAT Mean",
+    "Fwd IAT Std",
+    "Fwd IAT Max",
+    "Fwd IAT Min",
+    "Bwd IAT Total",
+    "Bwd IAT Mean",
+    "Bwd IAT Std",
+    "Bwd IAT Max",
+    "Bwd IAT Min",
+    "Fwd PSH Flags",
+    "Bwd PSH Flags",
+    "Fwd URG Flags",
+    "Bwd URG Flags",
+    "Fwd Header Length",
+    "Bwd Header Length",
+    "Fwd Packets/s",
+    "Bwd Packets/s",
+    "Min Packet Length",
+    "Max Packet Length",
+    "Packet Length Mean",
+    "Packet Length Std",
+    "Packet Length Variance",
+    "FIN Flag Count",
+    "SYN Flag Count",
+    "RST Flag Count",
+    "PSH Flag Count",
+    "ACK Flag Count",
+    "URG Flag Count",
+    "CWE Flag Count",
+    "ECE Flag Count",
+    "Down/Up Ratio",
+    "Average Packet Size",
+    "Avg Fwd Segment Size",
+    "Avg Bwd Segment Size",
+    "Fwd Header Length.1",
+    "Fwd Avg Bytes/Bulk",
+    "Fwd Avg Packets/Bulk",
+    "Fwd Avg Bulk Rate",
+    "Bwd Avg Bytes/Bulk",
+    "Bwd Avg Packets/Bulk",
+    "Bwd Avg Bulk Rate",
+    "Subflow Fwd Packets",
+    "Subflow Fwd Bytes",
+    "Subflow Bwd Packets",
+    "Subflow Bwd Bytes",
+    "Init_Win_bytes_forward",
+    "Init_Win_bytes_backward",
+    "act_data_pkt_fwd",
+    "min_seg_size_forward",
+    "Active Mean",
+    "Active Std",
+    "Active Max",
+    "Active Min",
+    "Idle Mean",
+    "Idle Std",
+    "Idle Max",
+    "Idle Min",
+    "Label"
+  ]
+}

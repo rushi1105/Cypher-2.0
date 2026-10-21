@@ -8,6 +8,10 @@ model via three streaming/REST endpoints:
   GET /stream            → raw NDJSON SSE (one event per packet, no ML)
   GET /stream/enriched   → ML-enriched SSE (ML result appended to each packet)
   GET /stream/windows    → SSE window events (one per 25 packets, includes ML prediction)
+  GET /stream/flows      → SSE flow events (one per completed flow, 24-feature model)
+  GET /stream/detections → SSE flow events + deterministic rule alerts + MITRE mapping
+  GET /stream/live       → dashboard stream: packets + rule alerts + flow events
+  GET /rules             → rule catalog and MITRE technique metadata
   GET /stats             → accumulated statistics (JSON)
   GET /threats           → list of detected threats (JSON)
 
@@ -34,12 +38,22 @@ import time
 from pathlib import Path
 from typing import Generator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 
-from ml_bridge    import PacketWindowBuffer
-from ml_predictor import predictor
+try:
+    from .flow_features import FlowFeatureTracker
+    from .flow_predictor import flow_predictor
+    from .ml_bridge import PacketWindowBuffer
+    from .ml_predictor import predictor
+    from .rules import MITRE_TECHNIQUES, RULE_SPECS, RuleEngine
+except ImportError:
+    from flow_features import FlowFeatureTracker
+    from flow_predictor import flow_predictor
+    from ml_bridge import PacketWindowBuffer
+    from ml_predictor import predictor
+    from rules import MITRE_TECHNIQUES, RULE_SPECS, RuleEngine
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -57,22 +71,19 @@ ENGINE_PCAP  = _ENGINE_DIR / "test_dpi.pcap"
 ENGINE_OUT   = _ENGINE_DIR / "output.pcap"
 ENGINE_SHIM  = _ENGINE_DIR / "engine_shim.py"   # Python fallback
 
-ENGINE_CMD = [
-    str(ENGINE_BIN),
-    str(ENGINE_PCAP),
-    str(ENGINE_OUT),
-    "--json",
-]
-
-SHIM_CMD = [
-    sys.executable,       # same Python that runs this server
-    str(ENGINE_SHIM),
-    str(ENGINE_PCAP),
-    str(ENGINE_OUT),
-]
+def _resolve_pcap(pcap: str | None) -> Path:
+    if not pcap:
+        return ENGINE_PCAP
+    candidate = (_ENGINE_DIR / pcap).resolve()
+    if candidate.parent != _ENGINE_DIR.resolve() or candidate.suffix.lower() != ".pcap":
+        raise HTTPException(status_code=400, detail="pcap must name a .pcap file in the engine directory")
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail=f"pcap not found: {pcap}")
+    return candidate
 
 # ── Startup: load ML models ────────────────────────────────────────────────────
 predictor.load()
+flow_predictor.load()
 
 
 def _engine_binary_works() -> bool:
@@ -127,13 +138,21 @@ app.add_middleware(
 
 # ── In-memory stats accumulator ────────────────────────────────────────────────
 _stats: dict = {
-    "total_packets":      0,
-    "total_windows":      0,
-    "attacks_detected":   0,
-    "anomalies_detected": 0,
-    "blocked_packets":    0,
-    "top_apps":           {},
-    "start_time":         time.time(),
+    "total_packets":        0,
+    "total_windows":        0,
+    "total_flows":          0,
+    "attacks_detected":     0,
+    "anomalies_detected":   0,
+    "flow_threats":         0,
+    "flow_anomalies":       0,
+    "total_detections":     0,
+    "detections_by_severity": {},
+    "detections_by_rule":   {},
+    "mitre_techniques":     {},
+    "blocked_packets":      0,
+    "top_apps":             {},
+    "top_attack_categories": {},
+    "start_time":           time.time(),
 }
 
 _threats: list[dict] = []   # rolling list of detected threat events
@@ -158,6 +177,7 @@ def _record_threat(window_id: int, features: dict, prediction: dict) -> None:
 
     if prediction.get("is_threat") or prediction.get("is_anomaly"):
         _threats.append({
+            "kind":          "window",
             "window_id":     window_id,
             "timestamp":     time.time(),
             "prediction":    prediction,
@@ -168,21 +188,75 @@ def _record_threat(window_id: int, features: dict, prediction: dict) -> None:
             _threats.pop(0)
 
 
+def _record_flow(event: dict) -> None:
+    """Update flow counters and append flagged flows to the threat log."""
+    prediction = event["prediction"]
+    _stats["total_flows"] += 1
+    category = prediction.get("category", "Unknown")
+    _stats["top_attack_categories"][category] = (
+        _stats["top_attack_categories"].get(category, 0) + 1
+    )
+    if prediction.get("is_threat"):
+        _stats["flow_threats"] += 1
+    if prediction.get("is_anomaly"):
+        _stats["flow_anomalies"] += 1
+
+    if prediction.get("is_threat") or prediction.get("is_anomaly"):
+        _threats.append({
+            "kind":       "flow",
+            "flow_id":    event["flow_id"],
+            "timestamp":  time.time(),
+            "src":        event.get("src", ""),
+            "dst":        event.get("dst", ""),
+            "sport":      event.get("sport", 0),
+            "dport":      event.get("dport", 0),
+            "proto":      event.get("proto", ""),
+            "app":        event.get("app", ""),
+            "sni":        event.get("sni", ""),
+            "prediction": prediction,
+            "features":   event["features"],
+        })
+        if len(_threats) > 500:
+            _threats.pop(0)
+
+
+def _record_detection(event: dict) -> None:
+    """Update detection counters and append a rule alert to the threat log."""
+    _stats["total_detections"] += 1
+    severity = event.get("severity", "unknown")
+    rule_id = event.get("rule", "unknown")
+    _stats["detections_by_severity"][severity] = (
+        _stats["detections_by_severity"].get(severity, 0) + 1
+    )
+    _stats["detections_by_rule"][rule_id] = (
+        _stats["detections_by_rule"].get(rule_id, 0) + 1
+    )
+    technique = event.get("mitre")
+    if technique:
+        technique_id = technique.get("id", "unknown")
+        _stats["mitre_techniques"][technique_id] = (
+            _stats["mitre_techniques"].get(technique_id, 0) + 1
+        )
+    _threats.append({"kind": "rule", "timestamp": time.time(), **event})
+    if len(_threats) > 500:
+        _threats.pop(0)
+
+
 # ── Engine process factory ─────────────────────────────────────────────────────
-def _spawn_engine() -> subprocess.Popen | None:
+def _spawn_engine(pcap_path: Path | None = None) -> subprocess.Popen | None:
     """
-    Spawn the DPI engine subprocess.
+    Spawn the DPI engine subprocess for a PCAP.
     Prefers the C++ binary; falls back to the Python shim automatically.
-    Returns the Popen object, or None if neither is available.
     """
+    pcap_path = pcap_path or ENGINE_PCAP
     if _USE_SHIM:
         if not ENGINE_SHIM.exists():
             logger.error("Neither engine binary nor Python shim found")
             return None
-        cmd = SHIM_CMD
+        cmd = [sys.executable, str(ENGINE_SHIM), str(pcap_path), str(ENGINE_OUT)]
         logger.info("Spawning Python shim: %s", " ".join(cmd))
     else:
-        cmd = ENGINE_CMD
+        cmd = [str(ENGINE_BIN), str(pcap_path), str(ENGINE_OUT), "--json"]
         logger.info("Spawning C++ engine: %s", " ".join(cmd))
 
     return subprocess.Popen(
@@ -210,20 +284,26 @@ def health() -> JSONResponse:
         "shim_path":      str(ENGINE_SHIM),
         "ml_loaded":      predictor.is_loaded,
         "ml_error":       predictor.load_error,
+        "flow_ml_loaded": flow_predictor.is_loaded,
+        "flow_ml_error":  flow_predictor.load_error,
+        "flow_model_threshold": flow_predictor.threshold,
+        "flow_feature_count": len(flow_predictor.feature_names),
+        "rule_count":     len(RULE_SPECS),
+        "mitre_technique_count": len(MITRE_TECHNIQUES),
         "uptime_s":       round(time.time() - _stats["start_time"], 1),
     })
 
 
 # ── /stream  (raw, no ML) ──────────────────────────────────────────────────────
 @app.get("/stream")
-def stream_packets() -> StreamingResponse:
+def stream_packets(pcap: str | None = None) -> StreamingResponse:
     """
     Raw SSE stream — one event per packet as emitted by the DPI engine.
     No ML enrichment.  Keeps backward compatibility.
     """
 
     def generator() -> Generator[str, None, None]:
-        process = _spawn_engine()
+        process = _spawn_engine(_resolve_pcap(pcap))
         if process is None:
             yield "data: {\"error\": \"engine binary not found\"}\n\n"
             return
@@ -248,11 +328,11 @@ def stream_packets() -> StreamingResponse:
 
 # ── /stream/enriched  (ML-annotated per-packet stream) ────────────────────────
 @app.get("/stream/enriched")
-def stream_enriched() -> StreamingResponse:
+def stream_enriched(pcap: str | None = None) -> StreamingResponse:
     """
-    SSE stream — every packet carries an "ml" block with the result of the
-    most-recently-completed window prediction.  Within a window, packets share
-    the same prediction (they belong to the same 25-packet cohort).
+    SSE stream — packets are buffered in 25-packet windows.  Once a window is
+    full, its prediction is computed and all 25 packets are emitted together
+    with the same "ml" block.  A final partial window is emitted as Pending.
 
     Event shape:
     {
@@ -270,22 +350,12 @@ def stream_enriched() -> StreamingResponse:
     """
 
     def generator() -> Generator[str, None, None]:
-        process = _spawn_engine()
+        process = _spawn_engine(_resolve_pcap(pcap))
         if process is None:
             yield "data: {\"error\": \"engine binary not found\"}\n\n"
             return
 
         buf = PacketWindowBuffer()
-        # Start with a neutral "not yet predicted" ML block
-        last_prediction: dict = {
-            "label":         "Pending",
-            "confidence":    0.0,
-            "is_threat":     False,
-            "anomaly_score": 0.0,
-            "is_anomaly":    False,
-            "window_id":     0,
-            "model_active":  predictor.is_loaded,
-        }
 
         try:
             for line in process.stdout:
@@ -296,21 +366,36 @@ def stream_enriched() -> StreamingResponse:
                     packet = json.loads(line)
                     _update_stats(packet)
 
-                    # Feed into window buffer
                     result = buf.add_packet(packet)
                     if result is not None:
-                        features, _packets, window_id = result
-                        pred = predictor.predict(features)
-                        pred["window_id"] = window_id
-                        _record_threat(window_id, features, pred)
-                        last_prediction = pred
+                        features, packets, window_id = result
+                        prediction = predictor.predict(features)
+                        prediction["window_id"] = window_id
+                        _record_threat(window_id, features, prediction)
 
-                    enriched = dict(packet)
-                    enriched["ml"] = last_prediction
-                    yield f"data: {json.dumps(enriched)}\n\n"
+                        for window_packet in packets:
+                            enriched = dict(window_packet)
+                            enriched["ml"] = prediction
+                            yield f"data: {json.dumps(enriched)}\n\n"
 
                 except json.JSONDecodeError as exc:
                     logger.debug("Non-JSON engine line: %s  (%s)", line[:80], exc)
+
+            packets, window_id = buf.flush_partial()
+            if packets:
+                pending = {
+                    "label":         "Pending",
+                    "confidence":    0.0,
+                    "is_threat":     False,
+                    "anomaly_score": 0.0,
+                    "is_anomaly":    False,
+                    "window_id":     window_id,
+                    "model_active":  predictor.is_loaded,
+                }
+                for window_packet in packets:
+                    enriched = dict(window_packet)
+                    enriched["ml"] = pending
+                    yield f"data: {json.dumps(enriched)}\n\n"
         finally:
             process.stdout.close()
             process.wait()
@@ -320,7 +405,7 @@ def stream_enriched() -> StreamingResponse:
 
 # ── /stream/windows  (window-level events) ────────────────────────────────────
 @app.get("/stream/windows")
-def stream_windows() -> StreamingResponse:
+def stream_windows(pcap: str | None = None) -> StreamingResponse:
     """
     SSE stream — one event per 25-packet window.  Ideal for dashboard
     threat-timeline charts and ML confidence graphs.
@@ -336,7 +421,7 @@ def stream_windows() -> StreamingResponse:
     """
 
     def generator() -> Generator[str, None, None]:
-        process = _spawn_engine()
+        process = _spawn_engine(_resolve_pcap(pcap))
         if process is None:
             yield "data: {\"error\": \"engine binary not found\"}\n\n"
             return
@@ -377,6 +462,201 @@ def stream_windows() -> StreamingResponse:
     return StreamingResponse(generator(), media_type="text/event-stream")
 
 
+# ── /stream/flows  (flow-level 24-feature model) ─────────────────────────────
+@app.get("/stream/flows")
+def stream_flows(pcap: str | None = None) -> StreamingResponse:
+    """
+    SSE stream — one event per completed, closed, or expired flow.
+
+    Event shape:
+    {
+      "flow_id": 3,
+      "src": "...", "dst": "...", "sport": 443, "dport": 58867,
+      "proto": "TCP", "app": "YouTube", "sni": "www.youtube.com",
+      "packet_count": 4,
+      "features": { ...24 features... },
+      "prediction": {
+        "label": "Attack"|"Normal",
+        "attack_probability": 0.93,
+        "category": "Scan",
+        "anomaly_score": 0.12,
+        "is_anomaly": false,
+        ...
+      }
+    }
+    """
+
+    def generator() -> Generator[str, None, None]:
+        process = _spawn_engine(_resolve_pcap(pcap))
+        if process is None:
+            yield "data: {\"error\": \"engine binary not found\"}\n\n"
+            return
+
+        tracker = FlowFeatureTracker()
+
+        def emit(event: dict) -> str:
+            event["prediction"] = flow_predictor.predict(event["features"])
+            _record_flow(event)
+            return f"data: {json.dumps(event)}\n\n"
+
+        try:
+            for line in process.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    packet = json.loads(line)
+                    _update_stats(packet)
+                    timestamp = float(packet.get("ts", time.time()))
+                    for event in tracker.expire(timestamp):
+                        yield emit(event)
+                    for event in tracker.add_packet(packet):
+                        yield emit(event)
+                except json.JSONDecodeError as exc:
+                    logger.debug("Non-JSON engine line: %s  (%s)", line[:80], exc)
+
+            for event in tracker.flush_all():
+                yield emit(event)
+        finally:
+            process.stdout.close()
+            process.wait()
+
+    return StreamingResponse(generator(), media_type="text/event-stream")
+
+
+# ── /stream/detections  (rules + ML + MITRE) ─────────────────────────────────
+@app.get("/stream/detections")
+def stream_detections(pcap: str | None = None) -> StreamingResponse:
+    """
+    SSE stream — deterministic rule alerts plus flow-level ML predictions.
+
+    Packet rule alerts are emitted as they fire. Completed/expired flows are
+    emitted with their prediction and any flow-level rule matches.
+    """
+
+    def generator() -> Generator[str, None, None]:
+        process = _spawn_engine(_resolve_pcap(pcap))
+        if process is None:
+            yield "data: {\"error\": \"engine binary not found\"}\n\n"
+            return
+
+        tracker = FlowFeatureTracker()
+        rules = RuleEngine()
+
+        def handle_detection(detection: dict) -> str:
+            _record_detection(detection)
+            return f"data: {json.dumps(detection)}\n\n"
+
+        def handle_flow(event: dict) -> list[str]:
+            event["kind"] = "flow"
+            event["prediction"] = flow_predictor.predict(event["features"])
+            event["rules"] = rules.process_flow(event)
+            _record_flow(event)
+            chunks = [handle_detection(detection) for detection in event["rules"]]
+            chunks.append(f"data: {json.dumps(event)}\n\n")
+            return chunks
+
+        try:
+            for line in process.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    packet = json.loads(line)
+                    _update_stats(packet)
+                    timestamp = float(packet.get("ts", time.time()))
+                    for detection in rules.process_packet(packet):
+                        yield handle_detection(detection)
+                    for event in tracker.expire(timestamp):
+                        for chunk in handle_flow(event):
+                            yield chunk
+                    for event in tracker.add_packet(packet):
+                        for chunk in handle_flow(event):
+                            yield chunk
+                except json.JSONDecodeError as exc:
+                    logger.debug("Non-JSON engine line: %s  (%s)", line[:80], exc)
+
+            for event in tracker.flush_all():
+                for chunk in handle_flow(event):
+                    yield chunk
+        finally:
+            process.stdout.close()
+            process.wait()
+
+    return StreamingResponse(generator(), media_type="text/event-stream")
+
+
+# ── /stream/live  (packets + rules + flows, one engine) ───────────────────────
+@app.get("/stream/live")
+def stream_live(pcap: str | None = None) -> StreamingResponse:
+    """
+    SSE stream for the dashboard. One engine process emits:
+    - packet events (kind=packet)
+    - deterministic rule alerts (kind=rule)
+    - completed/expired flow predictions (kind=flow)
+    """
+    def generator() -> Generator[str, None, None]:
+        process = _spawn_engine(_resolve_pcap(pcap))
+        if process is None:
+            yield "data: {\"error\": \"engine binary not found\"}\n\n"
+            return
+
+        tracker = FlowFeatureTracker()
+        rules = RuleEngine()
+
+        def handle_detection(detection: dict) -> str:
+            _record_detection(detection)
+            return f"data: {json.dumps(detection)}\n\n"
+
+        def handle_flow(event: dict) -> list[str]:
+            event["kind"] = "flow"
+            event["prediction"] = flow_predictor.predict(event["features"])
+            event["rules"] = rules.process_flow(event)
+            _record_flow(event)
+            chunks = [handle_detection(detection) for detection in event["rules"]]
+            chunks.append(f"data: {json.dumps(event)}\n\n")
+            return chunks
+
+        try:
+            for line in process.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    packet = json.loads(line)
+                    _update_stats(packet)
+                    timestamp = float(packet.get("ts", time.time()))
+                    packet_event = dict(packet)
+                    packet_event["kind"] = "packet"
+                    yield f"data: {json.dumps(packet_event)}\n\n"
+                    for detection in rules.process_packet(packet):
+                        yield handle_detection(detection)
+                    for event in tracker.expire(timestamp):
+                        for chunk in handle_flow(event):
+                            yield chunk
+                    for event in tracker.add_packet(packet):
+                        for chunk in handle_flow(event):
+                            yield chunk
+                except json.JSONDecodeError as exc:
+                    logger.debug("Non-JSON engine line: %s  (%s)", line[:80], exc)
+
+            for event in tracker.flush_all():
+                for chunk in handle_flow(event):
+                    yield chunk
+        finally:
+            process.stdout.close()
+            process.wait()
+
+    return StreamingResponse(generator(), media_type="text/event-stream")
+
+
+# ── /rules ────────────────────────────────────────────────────────────────────
+@app.get("/rules")
+def get_rules() -> JSONResponse:
+    """Return the rule catalog and MITRE ATT&CK metadata."""
+    return JSONResponse({"rules": RULE_SPECS, "mitre": MITRE_TECHNIQUES})
+
+
 # ── /stats ────────────────────────────────────────────────────────────────────
 @app.get("/stats")
 def get_stats() -> JSONResponse:
@@ -386,10 +666,14 @@ def get_stats() -> JSONResponse:
     top_apps = dict(
         sorted(_stats["top_apps"].items(), key=lambda x: x[1], reverse=True)[:10]
     )
+    top_categories = dict(
+        sorted(_stats["top_attack_categories"].items(), key=lambda x: x[1], reverse=True)[:10]
+    )
     return JSONResponse({
         **_stats,
-        "top_apps":  top_apps,
-        "uptime_s":  uptime,
+        "top_apps": top_apps,
+        "top_attack_categories": top_categories,
+        "uptime_s": uptime,
     })
 
 

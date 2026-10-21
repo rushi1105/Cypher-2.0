@@ -1,0 +1,66 @@
+{
+  "0.02": {
+    "threshold": 0.02,
+    "accuracy": 0.954,
+    "precision": 0.8168,
+    "recall": 0.9516,
+    "f1": 0.8791,
+    "fpr": 0.0455,
+    "roc_auc": 0.9922,
+    "pr_auc": 0.9797,
+    "confusion_matrix": {
+      "tn": 285073,
+      "fp": 13595,
+      "fn": 3085,
+      "tp": 60625
+    }
+  },
+  "0.05": {
+    "threshold": 0.05,
+    "accuracy": 0.9682,
+    "precision": 0.8941,
+    "recall": 0.9289,
+    "f1": 0.9112,
+    "fpr": 0.0235,
+    "roc_auc": 0.9922,
+    "pr_auc": 0.9797,
+    "confusion_matrix": {
+      "tn": 291662,
+      "fp": 7006,
+      "fn": 4529,
+      "tp": 59181
+    }
+  },
+  "0.50": {
+    "threshold": 0.5,
+    "accuracy": 0.9802,
+    "precision": 0.9903,
+    "recall": 0.8963,
+    "f1": 0.941,
+    "fpr": 0.0019,
+    "roc_auc": 0.9922,
+    "pr_auc": 0.9797,
+    "confusion_matrix": {
+      "tn": 298109,
+      "fp": 559,
+      "fn": 6607,
+      "tp": 57103
+    }
+  },
+  "0.81": {
+    "threshold": 0.81,
+    "accuracy": 0.974,
+    "precision": 0.9992,
+    "recall": 0.8529,
+    "f1": 0.9202,
+    "fpr": 0.0001,
+    "roc_auc": 0.9922,
+    "pr_auc": 0.9797,
+    "confusion_matrix": {
+      "tn": 298624,
+      "fp": 44,
+      "fn": 9374,
+      "tp": 54336
+    }
+  }
+}

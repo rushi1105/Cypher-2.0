@@ -1,0 +1,13 @@
+.git
+.gitignore
+.venv
+.vscode
+__pycache__
+*.pyc
+data/raw
+data/processed
+ml/artifacts
+dashboard/node_modules
+dashboard/.next
+engine/output*
+engine/*.jsonl

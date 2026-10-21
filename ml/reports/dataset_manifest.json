@@ -1,0 +1,130 @@
+{
+  "dataset": "CIC-IDS2017",
+  "source": "https://huggingface.co/datasets/c01dsnap/CIC-IDS2017",
+  "feature_names": [
+    "duration_s",
+    "fwd_packets",
+    "bwd_packets",
+    "total_packets",
+    "fwd_bytes",
+    "bwd_bytes",
+    "total_bytes",
+    "fwd_packet_size_mean",
+    "bwd_packet_size_mean",
+    "packet_size_mean",
+    "packet_size_std",
+    "syn_count",
+    "ack_count",
+    "fin_count",
+    "rst_count",
+    "psh_count",
+    "iat_mean",
+    "iat_std",
+    "flow_packets_per_sec",
+    "flow_bytes_per_sec",
+    "down_up_ratio",
+    "syn_ratio",
+    "dst_port",
+    "is_well_known_port"
+  ],
+  "label_names": [
+    "Normal",
+    "Scan",
+    "DoS/DDoS",
+    "Brute Force",
+    "Web Attack",
+    "Bot/C2",
+    "Infiltration",
+    "Other"
+  ],
+  "split_method": "chronological 70/15/15 within each label and source file after global exact deduplication",
+  "rows_before_dedup": 2830743,
+  "rows_after_dedup": 2415814,
+  "splits": {
+    "train": {
+      "rows": 1691065,
+      "labels": {
+        "Normal": 1393764,
+        "Scan": 63573,
+        "DoS/DDoS": 224516,
+        "Brute Force": 6360,
+        "Web Attack": 1463,
+        "Bot/C2": 1364,
+        "Infiltration": 25,
+        "Other": 0
+      },
+      "attacks": 297301,
+      "normal": 1393764
+    },
+    "val": {
+      "rows": 362371,
+      "labels": {
+        "Normal": 298663,
+        "Scan": 13623,
+        "DoS/DDoS": 48111,
+        "Brute Force": 1363,
+        "Web Attack": 314,
+        "Bot/C2": 292,
+        "Infiltration": 5,
+        "Other": 0
+      },
+      "attacks": 63708,
+      "normal": 298663
+    },
+    "test": {
+      "rows": 362378,
+      "labels": {
+        "Normal": 298668,
+        "Scan": 13623,
+        "DoS/DDoS": 48111,
+        "Brute Force": 1363,
+        "Web Attack": 314,
+        "Bot/C2": 293,
+        "Infiltration": 6,
+        "Other": 0
+      },
+      "attacks": 63710,
+      "normal": 298668
+    }
+  },
+  "sources": {
+    "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv": {
+      "rows": 225745,
+      "sha256": "6ff1580f5f81c0ae28a26f7631721018577f5f7c5e0feac28b795fcfe7b411ee"
+    },
+    "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv": {
+      "rows": 286467,
+      "sha256": "ca1824c51bfbb7b3c72290a11be04366ba8815878c6a1cc5c44cb1cee269e99b"
+    },
+    "Friday-WorkingHours-Morning.pcap_ISCX.csv": {
+      "rows": 191033,
+      "sha256": "53a41c24d570ea83b7ac55b2e94df94e7a8216aeb80a2af0246b6bc8bb543000"
+    },
+    "Monday-WorkingHours.pcap_ISCX.csv": {
+      "rows": 529918,
+      "sha256": "852c4beb34eda186f32561fa79df7a0747e92e1a6535b01270820dd9ffe17f34"
+    },
+    "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv": {
+      "rows": 288602,
+      "sha256": "6bcda3857c2504676034e3ea57762d38393cc734cb377a726bd5cb153961b1b5"
+    },
+    "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv": {
+      "rows": 170366,
+      "sha256": "d67066211fb1689c78406f1506f4c44704ecb92088353d5c96d96d6474eb819d"
+    },
+    "Tuesday-WorkingHours.pcap_ISCX.csv": {
+      "rows": 445909,
+      "sha256": "52b8692ae8c7d2ed04671fe2b98335693c0a92c7ab157d8c8b534d6523080851"
+    },
+    "Wednesday-workingHours.pcap_ISCX.csv": {
+      "rows": 692703,
+      "sha256": "893c27dc968bf7a8adef1689f90be55ca4a4dc3088fb63d6ff247ac56856df2a"
+    }
+  },
+  "limitations": [
+    "CIC-IDS2017 is from 2017 and has known quality and labeling issues.",
+    "The CSV has no timestamp column; row order within each day is used as the time proxy.",
+    "Exact duplicates are removed, but near-duplicate flows may remain.",
+    "The feature contract must be matched by the serving extractor before deployment."
+  ]
+}

@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1
+
+FROM debian:bookworm-slim AS engine-build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends g++ make \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY engine/include ./engine/include
+COPY engine/src ./engine/src
+RUN g++ -std=c++17 -O2 -pthread -I engine/include \
+    -o /src/dpi_simple.exe \
+    engine/src/main_working.cpp \
+    engine/src/pcap_reader.cpp \
+    engine/src/packet_parser.cpp \
+    engine/src/sni_extractor.cpp \
+    engine/src/types.cpp
+
+FROM python:3.11-slim
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    CYPHER_ML_ARTIFACT_DIR=/app/ml/artifacts
+
+COPY server/requirements.txt ./server/requirements.txt
+RUN pip install --no-cache-dir -r server/requirements.txt
+
+COPY server ./server
+COPY engine/engine_shim.py ./engine/engine_shim.py
+COPY engine/test_dpi.pcap ./engine/test_dpi.pcap
+COPY engine/test_attack.pcap ./engine/test_attack.pcap
+COPY --from=engine-build /src/dpi_simple.exe ./engine/dpi_simple.exe
+
+EXPOSE 8000
+CMD ["python", "-m", "uvicorn", "server.server:app", "--host", "0.0.0.0", "--port", "8000"]
