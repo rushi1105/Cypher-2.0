@@ -11,6 +11,7 @@ model via three streaming/REST endpoints:
   GET /stream/flows      → SSE flow events (one per completed flow, 24-feature model)
   GET /stream/detections → SSE flow events + deterministic rule alerts + MITRE mapping
   GET /stream/live       → dashboard stream: packets + rule alerts + flow events
+  POST /upload           → save a PCAP for streaming/analysis
   GET /rules             → rule catalog and MITRE technique metadata
   GET /mitre/search      → retrieve ATT&CK techniques for a query
   GET /mitre/{id}        → technique details
@@ -38,10 +39,11 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Generator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 
@@ -75,13 +77,19 @@ ENGINE_BIN   = _ENGINE_DIR / "dpi_simple.exe"
 ENGINE_PCAP  = _ENGINE_DIR / "test_dpi.pcap"
 ENGINE_OUT   = _ENGINE_DIR / "output.pcap"
 ENGINE_SHIM  = _ENGINE_DIR / "engine_shim.py"   # Python fallback
+UPLOAD_DIR   = _ENGINE_DIR / "uploads"
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
 
 def _resolve_pcap(pcap: str | None) -> Path:
     if not pcap:
         return ENGINE_PCAP
+    engine_root = _ENGINE_DIR.resolve()
+    upload_root = UPLOAD_DIR.resolve()
     candidate = (_ENGINE_DIR / pcap).resolve()
-    if candidate.parent != _ENGINE_DIR.resolve() or candidate.suffix.lower() != ".pcap":
-        raise HTTPException(status_code=400, detail="pcap must name a .pcap file in the engine directory")
+    allowed = candidate.parent == engine_root or upload_root in candidate.parents
+    if not allowed or candidate.suffix.lower() != ".pcap":
+        raise HTTPException(status_code=400, detail="pcap must be a .pcap file in engine/ or engine/uploads/")
     if not candidate.is_file():
         raise HTTPException(status_code=404, detail=f"pcap not found: {pcap}")
     return candidate
@@ -300,6 +308,43 @@ def health() -> JSONResponse:
         "mitre_kb_techniques": mitre_kb.technique_count,
         "mitre_kb_error": mitre_kb.load_error,
         "uptime_s":       round(time.time() - _stats["start_time"], 1),
+    })
+
+
+# ── /upload  (PCAP for replay/analysis) ───────────────────────────────────────
+@app.post("/upload")
+async def upload_pcap(file: UploadFile = File(...)) -> JSONResponse:
+    """Save an uploaded PCAP and return the path accepted by the stream endpoints."""
+    filename = file.filename or ""
+    if not filename.lower().endswith(".pcap"):
+        raise HTTPException(status_code=400, detail="only .pcap files are accepted")
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    destination = UPLOAD_DIR / f"{uuid.uuid4().hex}.pcap"
+    total = 0
+    try:
+        with destination.open("wb") as handle:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="PCAP exceeds the 50 MB limit")
+                handle.write(chunk)
+        if total == 0:
+            raise HTTPException(status_code=400, detail="uploaded PCAP is empty")
+    except HTTPException:
+        destination.unlink(missing_ok=True)
+        raise
+    finally:
+        await file.close()
+
+    return JSONResponse({
+        "pcap": f"uploads/{destination.name}",
+        "name": filename,
+        "size": total,
+        "max_bytes": MAX_UPLOAD_BYTES,
     })
 
 

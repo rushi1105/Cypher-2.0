@@ -1,5 +1,6 @@
 "use client";
 
+import type { ChangeEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Charts } from "@/components/Charts";
 import { FlowPanel } from "@/components/FlowPanel";
@@ -69,6 +70,7 @@ function flowToThreat(event: FlowEvent): ThreatItem | null {
 export default function HomePage() {
   const [pcap, setPcap] = useState(PCAPS[0]);
   const [running, setRunning] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState("idle");
   const [health, setHealth] = useState<Health | null>(null);
   const [packets, setPackets] = useState<PacketEvent[]>([]);
@@ -156,6 +158,33 @@ export default function HomePage() {
     setStatus("idle");
   };
 
+  const uploadPcap = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setUploading(true);
+    setStatus("uploading");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch(`${API_BASE}/upload`, {
+        method: "POST",
+        body: form,
+      });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null);
+        throw new Error(detail?.detail ?? "upload failed");
+      }
+      const data = (await response.json()) as { pcap: string };
+      start(data.pcap);
+    } catch {
+      setStatus("upload_failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const requested = params.get("pcap");
@@ -229,7 +258,16 @@ export default function HomePage() {
     };
   }, [packets, flows, threats]);
 
-  const statusLabel = running ? status : status === "ended" ? "replay ended" : "idle";
+  const statusLabel =
+    status === "uploading"
+      ? "uploading"
+      : status === "upload_failed"
+        ? "upload failed"
+        : running
+          ? status
+          : status === "ended"
+            ? "replay ended"
+            : "idle";
   const healthOk = health?.status === "ok";
 
   return (
@@ -245,11 +283,22 @@ export default function HomePage() {
 
         <div className="controls">
           <select className="input" value={pcap} onChange={(event) => setPcap(event.target.value)} disabled={running}>
+            {!PCAPS.includes(pcap) && <option value={pcap}>{pcap}</option>}
             {PCAPS.map((item) => (
               <option key={item} value={item}>{item}</option>
             ))}
           </select>
-          <button className="button button-primary" onClick={running ? stop : () => start()}>
+          <label className={`button upload-button ${running || uploading ? "button-disabled" : ""}`}>
+            {uploading ? "Uploading..." : "Upload PCAP"}
+            <input
+              type="file"
+              accept=".pcap"
+              onChange={uploadPcap}
+              disabled={running || uploading}
+              hidden
+            />
+          </label>
+          <button className="button button-primary" onClick={running ? stop : () => start()} disabled={uploading}>
             {running ? "Stop replay" : "Start replay"}
           </button>
           <span className={`status-pill status-${status}`}>

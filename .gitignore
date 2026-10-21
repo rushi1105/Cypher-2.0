@@ -12,6 +12,7 @@
 *.jsonl
 *.log
 output*
+engine/uploads/
 build/
 .next/
 dist/

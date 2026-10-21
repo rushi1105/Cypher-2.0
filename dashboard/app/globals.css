@@ -135,6 +135,17 @@ select {
   font-weight: 800;
 }
 
+.upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.button-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -160,12 +171,17 @@ select {
   box-shadow: 0 0 10px var(--green);
 }
 
-.status-connecting .status-dot {
+.status-connecting .status-dot,
+.status-uploading .status-dot {
   background: var(--amber);
 }
 
 .status-ended .status-dot {
   background: var(--violet);
+}
+
+.status-upload_failed .status-dot {
+  background: var(--red);
 }
 
 .hero {

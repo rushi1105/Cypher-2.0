@@ -122,6 +122,10 @@ Stats:
 
 All flow-level ML predictions for this attack capture were `Normal`; the deterministic rules caught the synthetic attacks. This is the hybrid detection story: rules for known patterns, ML for flow-level behavior.
 
+## Upload path
+
+`POST /upload` accepted `test_attack.pcap` (13,154 bytes), returned `uploads/<uuid>.pcap`, and that uploaded path streamed through `/stream/detections` with the same six expected rule alerts. The dashboard exposes this as an **Upload PCAP** action.
+
 ## ATT&CK explanation
 
 `POST /explain` with the port-scan alert returned a grounded T1046 citation:

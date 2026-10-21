@@ -11,4 +11,5 @@ ml/artifacts
 dashboard/node_modules
 dashboard/.next
 engine/output*
+engine/uploads
 engine/*.jsonl

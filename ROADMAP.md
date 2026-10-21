@@ -296,8 +296,10 @@ Live mode:
 - [x] Add `/stream/flows` with the 24-feature CIC-IDS2017 model.
 - [x] Add `/stream/detections` for rule alerts plus flow predictions, with `?pcap=filename.pcap` selection.
 - [x] Add `/rules` for the rule catalog and MITRE metadata.
-- [ ] Add `POST /analyze` for PCAP upload.
-- [ ] Add `GET /export/json`, `GET /export/csv`, and `GET /export/report`.
+- [x] Add `POST /upload` for PCAP selection with a 50 MB cap and dashboard Upload PCAP action.
+- [ ] Add `POST /analyze` for a synchronous one-shot summary.
+- [x] Add dashboard-side CSV/JSON export.
+- [ ] Add server-side `GET /export/json`, `GET /export/csv`, and `GET /export/report`.
 - [ ] Add PostgreSQL persistence for sessions, flows, and alerts.
 - [ ] Design the schema: sessions, flows, alerts, and MITRE technique mappings.
 - [ ] Add indexes for time-series alert queries and per-session flow lookups.
@@ -609,6 +611,8 @@ Suggested changelog format:
 - Added `server/mitre_kb.py` with TF-IDF retrieval, technique lookup, and grounded explanation generation.
 - Added `/mitre/status`, `/mitre/search`, `/mitre/{id}`, and `POST /explain`, plus an "Explain with ATT&CK" action on dashboard threat cards.
 - Added retrieval tests; full suite now 26 tests passing.
+- Added `POST /upload` with a 50 MB limit and a dashboard **Upload PCAP** action; uploaded captures stream through the same `/stream/live` pipeline.
+- Verified upload end-to-end: `test_attack.pcap` uploaded, then streamed through `/stream/detections` and produced all six expected rule alerts.
 
 ---
 

@@ -136,7 +136,7 @@ npm install
 npm run dev
 ```
 
-Open http://127.0.0.1:3000. To auto-start the attack replay:
+Open http://127.0.0.1:3000. Use **Upload PCAP** to analyze your own capture, or auto-start the attack replay:
 
 ```text
 http://127.0.0.1:3000/?pcap=test_attack.pcap&autostart=1
@@ -193,6 +193,7 @@ In JSON mode, human-readable logs go to stderr so stdout stays clean for the Fas
 | `GET /stream/windows` | One event per completed 25-packet window (legacy 11-feature model) |
 | `GET /stream/flows` | One event per completed/expired flow (24-feature CIC-IDS2017 model) |
 | `GET /stream/detections` | Flow events plus deterministic rule alerts and MITRE mapping |
+| `POST /upload` | Upload a `.pcap` (50 MB max) and get a path for the stream endpoints |
 | `GET /rules` | Rule catalog and MITRE ATT&CK technique metadata |
 | `GET /mitre/search` | Retrieve ATT&CK techniques for a query |
 | `GET /mitre/{id}` | ATT&CK technique details |
@@ -200,10 +201,24 @@ In JSON mode, human-readable logs go to stderr so stdout stays clean for the Fas
 | `GET /stats` | Accumulated packet, window, flow, detection, attack, anomaly, and app stats |
 | `GET /threats` | Recent window, flow, and rule threat/anomaly events |
 
-All stream endpoints accept an optional `?pcap=filename.pcap` restricted to the `engine/` directory. Example:
+All stream endpoints accept an optional `?pcap=filename.pcap` restricted to `engine/` or `engine/uploads/`. Example:
 
 ```powershell
 curl.exe -N "http://127.0.0.1:8000/stream/detections?pcap=test_attack.pcap"
+```
+
+Upload a capture:
+
+```powershell
+curl.exe -F "file=@engine/test_attack.pcap" http://127.0.0.1:8000/upload
+```
+
+The response contains a `pcap` path such as `uploads/<uuid>.pcap` that can be passed to `/stream/live` or `/stream/detections`. Uploaded files are ignored by Git and capped at 50 MB.
+
+Verify upload plus detection end-to-end with the server running:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\verify-upload.py
 ```
 
 ## JSON packet example
