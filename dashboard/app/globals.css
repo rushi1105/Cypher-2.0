@@ -572,6 +572,55 @@ select {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.explain-button {
+  margin-top: 9px;
+  background: rgba(34, 211, 238, 0.08);
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  color: var(--cyan);
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.explain-button:hover:not(:disabled) {
+  background: rgba(34, 211, 238, 0.14);
+}
+
+.explain-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.explanation {
+  margin-top: 9px;
+  border-top: 1px dashed rgba(30, 58, 95, 0.8);
+  padding-top: 9px;
+  color: #c9d9e8;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.explanation p {
+  margin: 0 0 7px;
+}
+
+.citation-list {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.citation-list a {
+  color: var(--cyan);
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.citation-list a:hover {
+  text-decoration: underline;
+}
+
 .flow-list {
   display: grid;
   gap: 6px;

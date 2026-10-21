@@ -40,6 +40,7 @@ node_modules/
 # datasets and training artifacts
 data/raw/
 data/processed/
+data/mitre/enterprise-attack.json
 ml/artifacts/
 
 # legacy linux binary

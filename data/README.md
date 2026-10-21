@@ -40,6 +40,10 @@ The raw `Label` column is mapped to a smaller set for modelling:
 | Infiltration | Infiltration |
 | Other | anything not mapped above |
 
+## MITRE ATT&CK
+
+The compact ATT&CK technique index lives in `data/mitre/attack_techniques.json`. See `data/mitre/README.md` for generation and attribution.
+
 ## Provenance and limits
 
 - The dataset is from 2017 and has known quality and labeling issues.

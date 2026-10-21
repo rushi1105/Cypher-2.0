@@ -122,6 +122,30 @@ Stats:
 
 All flow-level ML predictions for this attack capture were `Normal`; the deterministic rules caught the synthetic attacks. This is the hybrid detection story: rules for known patterns, ML for flow-level behavior.
 
+## ATT&CK explanation
+
+`POST /explain` with the port-scan alert returned a grounded T1046 citation:
+
+```json
+{
+  "technique": {
+    "id": "T1046",
+    "name": "Network Service Discovery",
+    "tactics": ["discovery"],
+    "url": "https://attack.mitre.org/techniques/T1046"
+  },
+  "citations": [
+    {
+      "source": "MITRE ATT&CK",
+      "title": "T1046 Network Service Discovery",
+      "url": "https://attack.mitre.org/techniques/T1046"
+    }
+  ]
+}
+```
+
+The explanation includes the observed source, destination, port, and evidence (`unique_ports=20`, `window_s=60`) and states that the mapping is not proof of compromise. The dashboard exposes this as an **Explain with ATT&CK** button on each threat card.
+
 ## Observations
 
 - The C++ engine now supplies `size` and `flags`, so `avg_packet_size`, `packet_size_std`, and `syn_count` are no longer estimated or zero.
@@ -131,6 +155,7 @@ All flow-level ML predictions for this attack capture were `Normal`; the determi
 - `/stats` accumulated 154 packets and 6 windows because `/stream/enriched` and `/stream/windows` each spawn their own engine process. The single-session architecture in M4 will fix duplicated stats and threats.
 - The legacy window model is an inference artifact only. The new CIC-IDS2017 flow models are documented in `ml/reports/model_card.md`.
 - Serving feature parity is name-level and contract-level; value parity is approximate because packet bytes are estimated as `size - 14` and CICFlowMeter semantics are not identical.
+- The RAG layer is retrieval plus deterministic template generation, not an LLM. It is grounded in the ATT&CK description and URL; external threat-intel feeds are not connected.
 
 ## Next step
 

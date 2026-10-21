@@ -6,6 +6,7 @@ import { FlowPanel } from "@/components/FlowPanel";
 import { PacketTable } from "@/components/PacketTable";
 import { StatsCards } from "@/components/StatsCards";
 import { ThreatPanel } from "@/components/ThreatPanel";
+import { API_BASE } from "@/lib/api";
 import { downloadCsv, downloadJson, mitreForCategory } from "@/lib/format";
 import type {
   FlowEvent,
@@ -16,7 +17,6 @@ import type {
   ThreatItem,
 } from "@/lib/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 const PCAPS = ["test_dpi.pcap", "test_attack.pcap"];
 
 function ruleToThreat(event: RuleEvent): ThreatItem {

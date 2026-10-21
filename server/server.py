@@ -12,6 +12,9 @@ model via three streaming/REST endpoints:
   GET /stream/detections → SSE flow events + deterministic rule alerts + MITRE mapping
   GET /stream/live       → dashboard stream: packets + rule alerts + flow events
   GET /rules             → rule catalog and MITRE technique metadata
+  GET /mitre/search      → retrieve ATT&CK techniques for a query
+  GET /mitre/{id}        → technique details
+  POST /explain          → grounded, cited ATT&CK explanation for an alert
   GET /stats             → accumulated statistics (JSON)
   GET /threats           → list of detected threats (JSON)
 
@@ -45,12 +48,14 @@ from fastapi.responses import StreamingResponse, JSONResponse
 try:
     from .flow_features import FlowFeatureTracker
     from .flow_predictor import flow_predictor
+    from .mitre_kb import mitre_kb
     from .ml_bridge import PacketWindowBuffer
     from .ml_predictor import predictor
     from .rules import MITRE_TECHNIQUES, RULE_SPECS, RuleEngine
 except ImportError:
     from flow_features import FlowFeatureTracker
     from flow_predictor import flow_predictor
+    from mitre_kb import mitre_kb
     from ml_bridge import PacketWindowBuffer
     from ml_predictor import predictor
     from rules import MITRE_TECHNIQUES, RULE_SPECS, RuleEngine
@@ -84,6 +89,7 @@ def _resolve_pcap(pcap: str | None) -> Path:
 # ── Startup: load ML models ────────────────────────────────────────────────────
 predictor.load()
 flow_predictor.load()
+mitre_kb.load()
 
 
 def _engine_binary_works() -> bool:
@@ -290,6 +296,9 @@ def health() -> JSONResponse:
         "flow_feature_count": len(flow_predictor.feature_names),
         "rule_count":     len(RULE_SPECS),
         "mitre_technique_count": len(MITRE_TECHNIQUES),
+        "mitre_kb_loaded": mitre_kb.is_loaded,
+        "mitre_kb_techniques": mitre_kb.technique_count,
+        "mitre_kb_error": mitre_kb.load_error,
         "uptime_s":       round(time.time() - _stats["start_time"], 1),
     })
 
@@ -655,6 +664,44 @@ def stream_live(pcap: str | None = None) -> StreamingResponse:
 def get_rules() -> JSONResponse:
     """Return the rule catalog and MITRE ATT&CK metadata."""
     return JSONResponse({"rules": RULE_SPECS, "mitre": MITRE_TECHNIQUES})
+
+
+# ── /mitre  (retrieval and grounded explanations) ────────────────────────────
+@app.get("/mitre/status")
+def mitre_status() -> JSONResponse:
+    return JSONResponse({
+        "loaded": mitre_kb.is_loaded,
+        "technique_count": mitre_kb.technique_count,
+        "error": mitre_kb.load_error,
+        "source": "https://github.com/mitre-attack/attack-stix-data",
+    })
+
+
+@app.get("/mitre/search")
+def mitre_search(q: str, top_k: int = 5) -> JSONResponse:
+    if not mitre_kb.is_loaded:
+        raise HTTPException(status_code=503, detail=mitre_kb.load_error or "ATT&CK knowledge base not loaded")
+    top_k = max(1, min(top_k, 20))
+    return JSONResponse({"query": q, "results": mitre_kb.search(q, top_k=top_k)})
+
+
+@app.get("/mitre/{technique_id}")
+def mitre_technique(technique_id: str) -> JSONResponse:
+    if not mitre_kb.is_loaded:
+        raise HTTPException(status_code=503, detail=mitre_kb.load_error or "ATT&CK knowledge base not loaded")
+    technique = mitre_kb.get(technique_id)
+    if technique is None:
+        raise HTTPException(status_code=404, detail=f"Unknown technique: {technique_id}")
+    return JSONResponse(technique)
+
+
+@app.post("/explain")
+def explain_alert(alert: dict) -> JSONResponse:
+    if not mitre_kb.is_loaded:
+        raise HTTPException(status_code=503, detail=mitre_kb.load_error or "ATT&CK knowledge base not loaded")
+    result = mitre_kb.explain_alert(alert)
+    status = 404 if result.get("error") else 200
+    return JSONResponse(result, status_code=status)
 
 
 # ── /stats ────────────────────────────────────────────────────────────────────

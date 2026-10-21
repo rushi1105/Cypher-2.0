@@ -25,6 +25,7 @@ COPY server/requirements.txt ./server/requirements.txt
 RUN pip install --no-cache-dir -r server/requirements.txt
 
 COPY server ./server
+COPY data/mitre/attack_techniques.json ./data/mitre/attack_techniques.json
 COPY engine/engine_shim.py ./engine/engine_shim.py
 COPY engine/test_dpi.pcap ./engine/test_dpi.pcap
 COPY engine/test_attack.pcap ./engine/test_attack.pcap

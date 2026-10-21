@@ -22,6 +22,14 @@ This project uses open-source Python packages including FastAPI, Uvicorn,
 NumPy, pandas, scikit-learn, joblib, and python-dotenv. Their licenses are
 governed by their respective projects.
 
+## MITRE ATT&CK
+
+The compact ATT&CK technique index in `data/mitre/attack_techniques.json` is derived from:
+
+- https://github.com/mitre-attack/attack-stix-data
+- MITRE ATT&CK is a trademark of The MITRE Corporation.
+- See `data/mitre/README.md` and the upstream repository for license and attribution terms.
+
 ## Model artifacts
 
 `server/ml/threat_classifier.pkl` and `server/ml/anomaly_detector.pkl` are

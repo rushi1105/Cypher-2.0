@@ -2,7 +2,7 @@
 
 Cypher is a PCAP-based deep packet analysis and ML-assisted anomaly scoring platform. A C++17 engine parses Ethernet/IPv4/TCP/UDP traffic, tracks bidirectional flows, extracts TLS SNI, HTTP Host, and DNS metadata, classifies applications, applies IP/app/domain block rules, and emits NDJSON plus a filtered PCAP. A FastAPI bridge replays the capture, aggregates windows into ML features, and exposes raw, enriched, window, stats, and threat streams.
 
-> **Current status:** the offline pipeline and local dashboard are working end-to-end (engine -> FastAPI -> ML/rules -> SSE -> Next.js). A reproducible CIC-IDS2017 pipeline is complete, the 24-feature flow models are served at `/stream/flows`, and deterministic rules with MITRE ATT&CK mapping are served at `/stream/detections`. The legacy `/stream/windows` endpoints still use the old 11-feature model. Live capture, RAG explanations, Postgres integration, Docker/CI verification, and public deployment are still in progress. See [ROADMAP.md](ROADMAP.md) for the exact state.
+> **Current status:** the offline pipeline and local dashboard are working end-to-end (engine -> FastAPI -> ML/rules/RAG -> SSE -> Next.js). A reproducible CIC-IDS2017 pipeline is complete, the 24-feature flow models are served at `/stream/flows`, deterministic rules with MITRE ATT&CK mapping are served at `/stream/detections`, and grounded ATT&CK explanations are available through `/explain`. The legacy `/stream/windows` endpoints still use the old 11-feature model. Live capture, Postgres integration, Docker/CI verification, and public deployment are still in progress. See [ROADMAP.md](ROADMAP.md) for the exact state.
 
 ![Cypher dashboard](docs/dashboard-preview.png)
 
@@ -194,6 +194,9 @@ In JSON mode, human-readable logs go to stderr so stdout stays clean for the Fas
 | `GET /stream/flows` | One event per completed/expired flow (24-feature CIC-IDS2017 model) |
 | `GET /stream/detections` | Flow events plus deterministic rule alerts and MITRE mapping |
 | `GET /rules` | Rule catalog and MITRE ATT&CK technique metadata |
+| `GET /mitre/search` | Retrieve ATT&CK techniques for a query |
+| `GET /mitre/{id}` | ATT&CK technique details |
+| `POST /explain` | Grounded, cited ATT&CK explanation for an alert |
 | `GET /stats` | Accumulated packet, window, flow, detection, attack, anomaly, and app stats |
 | `GET /threats` | Recent window, flow, and rule threat/anomaly events |
 
@@ -274,12 +277,44 @@ port_scan, syn_flood, dns_flood, suspicious_port, brute_force, beaconing
 
 The rule engine supports suppression windows, per-rule evidence, severity counters, and ATT&CK metadata. The ML flow model alone did not flag the synthetic one-packet attack flows; the hybrid rule layer is what catches them.
 
+## RAG over MITRE ATT&CK
+
+`server/mitre_kb.py` loads a compact index of 706 ATT&CK Enterprise techniques, retrieves the best match for an alert using TF-IDF with Cypher-specific keyword boosts, and generates a grounded explanation with a citation.
+
+```powershell
+# Search techniques
+Invoke-RestMethod "http://127.0.0.1:8000/mitre/search?q=port%20scan&top_k=5"
+
+# Get a technique
+Invoke-RestMethod "http://127.0.0.1:8000/mitre/T1046"
+```
+
+Explain an alert:
+
+```powershell
+$body = @{
+  rule = "port_scan"
+  title = "Possible port scan"
+  src = "10.0.0.66"
+  dst = "192.168.1.10"
+  dport = 10019
+  mitre = @{ id = "T1046" }
+  evidence = @{ unique_ports = 20; window_s = 60 }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/explain" `
+  -ContentType "application/json" -Body $body
+```
+
+The dashboard threat cards include an **Explain with ATT&CK** action. Explanations are grounded in the retrieved ATT&CK text and include a technique URL; they do not claim proof of compromise.
+
 ## Current limitations
 
 - The server replays a fixed `engine/test_dpi.pcap`; it does not capture live traffic yet.
 - The dashboard is local-only; public deployment is still pending.
 - The legacy `/stream/windows` model uses 11 features; `/stream/flows` uses the new 24-feature model.
 - The CIC-IDS2017 pipeline has no self-captured baseline or controlled lab attack traffic yet.
+- RAG explanations are deterministic retrieval/templates, not an LLM; external threat-intel feeds are not connected yet.
 - Serving features approximate CICFlowMeter semantics using the engine JSON; packet bytes are estimated as frame size minus the Ethernet header.
 - Single-packet flows from the synthetic blocked-IP traffic were not flagged by the flow model; rule-based detection is still required.
 - Rule thresholds are heuristic and have not been tuned on real traffic. Expect false positives and overlap between rules.
